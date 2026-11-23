@@ -1,0 +1,6 @@
+{
+  "name": "AeroLink",
+  "description": "Application Android universelle de pilotage, vidéo FPV et IA embarquée hors ligne pour drones Wi-Fi (FLOW-UFO, WiFi UAV, KY UFO, Jieli, Lewei).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

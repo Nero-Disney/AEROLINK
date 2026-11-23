@@ -1,0 +1,1038 @@
+Réfléchi pendant 3m 7s
+
+### Plan directeur — application Android universelle pour drones Wi-Fi
+
+### 1\. Vision du projet
+
+L’objectif est de construire une application Android native capable de remplacer progressivement les applications propriétaires fournies avec les petits drones chinois Wi-Fi — KY UFO, FLOW-UFO, WiFi UAV, CooingDV et d’autres familles compatibles.
+
+Il ne s’agit pas simplement de créer une télécommande. L’application devra réunir quatre fonctions dans un même environnement :
+
+* Connexion et compatibilité : reconnaître plusieurs familles de drones et sélectionner automatiquement le bon protocole de communication.
+
+* Pilotage et vidéo : afficher le flux caméra en direct, proposer les commandes de vol et enregistrer les images et vidéos.
+
+* Intelligence artificielle embarquée : détecter les visages, personnes et objets directement sur le téléphone, sans dépendre d’un serveur distant.
+
+* Suivi visuel : suivre un ou plusieurs sujets dans l’image, conserver leur identifiant pendant la session et afficher leur trajectoire et leur position.
+
+Le projet sera d’abord développé et testé avec le drone qui diffuse le réseau `FLOW-UFO`, sur le Samsung Galaxy S9 SM-G960U. L’architecture devra toutefois permettre d’ajouter de nouveaux drones sans reconstruire l’application autour de chaque modèle.
+
+Décision technique de départ : Kotlin, Android natif et Jetpack Compose pour l’application ; MediaPipe et LiteRT pour l’IA ; OpenCV pour le traitement d’image ; des modules de protocoles indépendants pour les drones.
+
+Une distinction fondamentale guidera toute la conception : le moteur vidéo, le moteur d’IA et le contrôleur de vol seront trois sous-systèmes séparés. Ainsi, un nouveau protocole pourra être ajouté sans modifier le fonctionnement de la détection ou du suivi visuel.
+
+### 2\. Projets communautaires à étudier et à réutiliser
+
+J’ai identifié plusieurs projets de rétro-ingénierie intéressants. Ils ne sont pas tous des applications Android prêtes à installer : certains sont des applications de bureau, des contrôleurs Python ou des documentations de protocoles. Leur intérêt est de nous éviter de repartir de zéro.
+
+### A. Les références prioritaires
+
+1\. OpenIPC Decoder
+
+À tester en premier
+
+Application Android · Vidéo · Plusieurs familles de drones
+
+![Web Interface - OpenIPC](https://images.openai.com/static-rsc-4/BL1-fQIS1JypRTd9irUi3h4QFtK-yJVv2kuqZVin_6T8oUO-wEK5cYUXJRajl1ApfRuGCWOgRx1D8tqZX-l3SDTl1Y4snW5jnAPzZUyltNXW_ZYVVt3yYEz38krQbuEVVCP7eFu3BAtmBewXHpA2_HhjoitQwq-to-7DNFD632qmc_GaXXo4anyOFsRsHC0A?purpose=fullsize)
+
+C'est actuellement la référence la plus directement exploitable sur le téléphone. L'application dispose d'un APK Android et prend notamment en charge les flux FLOW-UFO, KY UFO RTSP, Jieli/HF et Lewei.
+
+* [Code source Android](https://github.com/OpenIPC/decoder?utm_source=chatgpt.com)
+
+* [Télécharger l'APK Android v2 actuel](https://github.com/OpenIPC/decoder/releases/latest/download/decoder-v2.apk?utm_source=chatgpt.com)
+
+* [Documentation dédiée aux drones Wi-Fi](https://github.com/OpenIPC/decoder/blob/v2/docs/toys.md?utm_source=chatgpt.com)
+
+* [Travail communautaire sur le protocole FLOW-UFO](https://github.com/OpenIPC/decoder/issues/187?utm_source=chatgpt.com)
+
+Ce qu'on veut en tirer : une référence fonctionnelle pour la réception vidéo, le réassemblage des images JPEG, les accusés de réception du protocole, la reconnexion et les outils de diagnostic.
+
+Limite importante : OpenIPC Decoder ne pilote pas les drones. Son code est publié sous la Prosperity Public License 3.0.0, qui autorise gratuitement les usages non commerciaux, mais limite les usages commerciaux à une période d'essai de 30 jours. Ce n'est donc pas une base open source permissive sur laquelle nous pouvons simplement construire et distribuer librement un produit commercial. Nous pouvons l'utiliser comme application de référence et étudier ses conditions avant toute réutilisation de code. GitHub +2
+
+2\. TurboDrone
+
+Référence principale des protocoles
+
+Python + interface web · Contrôle et vidéo · Plusieurs familles
+
+![Building an android application to control Tello drone flight and perform real-time object detection using YOLOv5 | by JITHIN MATHEW | Medium](https://images.openai.com/static-rsc-4/rYJV_i7_WzC32ho-2c9Yt1JcKDt5THOBxKpty5Btq8ViUttaqKW06Vf9xOj1ZHMXIEspaa-wSs9YdNYGq8haJTLHSABEP9Zm_4uQInYC_MJDBF6khQVezd3sgZG-zhp1HDtJjBGCjbwGxT70y_qxZEtI7mC9wYCKHP4XB0lf2lLBNI7v6PBfmW2P1YLCZ2Yl?purpose=fullsize)
+
+C'est probablement le dépôt le plus important pour notre architecture multi-drones. Il reproduit des communications de drones bon marché à partir de protocoles analysés dans les applications propriétaires.
+
+* [Dépôt TurboDrone](https://github.com/marshallrichards/turbodrone?utm_source=chatgpt.com)
+
+* [Liste des drones et compatibilités](https://github.com/marshallrichards/turbodrone?utm_source=chatgpt.com#hardware)
+
+* [Documentation des protocoles expérimentaux](https://github.com/marshallrichards/turbodrone/tree/master/experimental?utm_source=chatgpt.com)
+
+* [Licence Apache 2.0](https://github.com/marshallrichards/turbodrone/blob/master/LICENSE?utm_source=chatgpt.com)
+
+Le projet répertorie notamment les familles `wifi_uav`, `cooingdv`, `cooingdv_jieli`, `s2x`, `wifi_cam` et `x69_lg`. Il distingue les modèles physiquement testés de ceux seulement suspectés compatibles ou dont le code reste expérimental.
+
+Ce qu'on veut en tirer : les structures de paquets, séquences de connexion, commandes de vol, flux vidéo, gestion des différents modèles et logique des contrôleurs. L'API de protocoles sera adaptée en Kotlin pour Android.
+
+Limite : ce n'est pas une application Android prête à installer. Le projet repose principalement sur un backend Python et une interface web. Son code est sous Apache 2.0, sous réserve de respecter ses notices et celles de ses dépendances. GitHub +3
+
+3\. pyDroneWire
+
+Référence FLOW-UFO à examiner
+
+Contrôleur Python · Vidéo · Pilotage · Stabilisation visuelle
+
+\- [Dépôt pyDroneWire](https://github.com/hakimjanov/pyDroneWire?utm_source=chatgpt.com)
+
+Ce projet présente un contrôleur de drone avec pilotage, bascule entre caméras, affichage de type HUD, enregistrement et stabilisation expérimentale par flux optique Lucas-Kanade.
+
+Ce qu'on veut en tirer : les idées de HUD, les commandes de vol, le mécanisme de suivi des mouvements de l'image et la façon de structurer une boucle de contrôle.
+
+Prudence : sa description associe `FLOW-UFO` au protocole KY UFO/E58, avec RTSP et UDP 7099. Cela ne correspond pas à la variante FLOW-UFO/BL60x documentée par OpenIPC, qui utilise un flux MJPEG propriétaire sur UDP. Le dépôt ne présente par ailleurs qu'un historique très limité et aucun fichier de licence à sa racine dans les éléments examinés. Il doit donc être considéré comme une piste à vérifier, pas comme notre implémentation de référence ni comme du code librement réutilisable. GitHub +2
+
+### B. Autres projets communautaires utiles
+
+| Projet                        | Nature et intérêt                                                                                                                                                                                                    | Lien   |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| e88pilot                      | Fork de TurboDrone concentré sur le E88 Pro. Intéressant pour étudier les variantes E88 et les adaptations d'interface.                                                                                              | GitHub |
+| Maritaca E88 Controller       | Firmware de télécommande pour M5Stack AtomS3 / M5StickC Plus2. Contient notamment deux implémentations de protocoles E88/E58 et FLOW-WIFI, une détection automatique et des commandes de vol. Licence GPL-3.0.       | GitHub |
+| E88 Drone Reverse Engineering | Étude du réseau, du flux RTSP, du heartbeat et des paquets de pilotage d'un E88. Licence MIT, mais certaines parties du contrôle sont encore incomplètes.                                                            | GitHub |
+| Reversing WiFi UAV            | Rétro-ingénierie du LSRC-S1S et de l'écosystème WiFi UAV : communication réseau, vidéo et commandes.                                                                                                                 | GitHub |
+| TYVYX                         | Projet de contrôle Wi-Fi avec vision artificielle, navigation expérimentale et interface web, notamment autour du K417. Utile comme référence pour les fonctions IA, mais pas comme application Android universelle. | GitHub |
+| DroneUAVHack                  | Petit décodeur Python qui reconstitue des images JPEG à partir de paquets UDP exportés depuis Wireshark.                                                                                                             | GitHub |
+| Fall Army Worm Detection      | Projet de détection sur flux caméra, incluant une intégration vidéo KY UFO. Intéressant comme exemple de traitement IA branché sur un flux de drone, mais ce n'est pas une application de pilotage universelle.      | GitHub |
+| OpenIPC Issue #196            | Recensement communautaire de plusieurs travaux de rétro-ingénierie, avec des références vers différents contrôleurs et protocoles.                                                                                   | GitHub |
+
+Le projet Maritaca est particulièrement intéressant pour comprendre pourquoi deux drones qui se ressemblent peuvent utiliser des paquets de contrôle différents : il documente par exemple une variante `WIFI_8K_` et une variante `FLOW-WIFI`. Ce n'est pas une application à porter sur Android, mais une bonne source pour étudier la séparation entre protocole, commandes et contrôleur. GitHub +3
+
+Conclusion sur les dépôts : je ne retiendrais pas un seul projet comme fondation complète. La combinaison la plus rationnelle est OpenIPC pour valider la vidéo sur le téléphone, TurboDrone pour les protocoles et le pilotage, puis notre propre application Kotlin pour réunir la vidéo, les commandes et l'IA. Les autres dépôts serviront de références ciblées.
+
+### 3\. Identification exacte du drone FLOW-UFO
+
+C'est le premier problème technique à résoudre. Le nom commercial ou le nom du Wi-Fi ne suffit pas pour choisir le bon protocole.
+
+La documentation OpenIPC établit cette distinction :
+
+| Famille identifiée     | Adresse habituelle du drone | Vidéo                                   |
+| ---------------------- | --------------------------- | --------------------------------------- |
+| FLOW-UFO / BL60x       | 192.168.169.1               | MJPEG propriétaire sur UDP 8800 ou 8801 |
+| KY UFO / CooingDV RTSP | 192.168.1.1                 | RTSP sur le port 7070                   |
+| Jieli / HF             | 192.168.80.1                | Protocole CTP, vidéo UDP                |
+| Lewei / certains VISUO | 192.168.0.1                 | H.264 sur TCP 7060                      |
+
+Les numéros de ports et les séquences de connexion diffèrent d'une famille à l'autre. GitHub +1
+
+Deux variantes à ne pas confondre
+
+![United UFO Drönare med Kamera 1280x720 WiFi - 24.se](https://images.openai.com/static-rsc-4/-G-OTH7e0T6cvbJm_MBc9idGWwU1flB-WZzQHmbJqCCWIGfEaFQgr5sPqCic7JH6v2_rp10Euez3QakYRzOkZ2_lLRjqIPMvIjnHHFdr8Ad1nnGtTg5D4Qa8AJg3FwdSFzrrvxO0ZSqKmLHO5vcuK16yyoY-p2OsHN4lR3ko0htFmzaETOtBfTuAascaBANm?purpose=fullsize)
+
+FLOW-UFO / BL60x
+
+UDP · JPEG fragmenté · Accusés de réception
+
+![ড্রোন ফ্লাই
+ – RCDrone](https://images.openai.com/static-rsc-4/iRZ5rbBx-FaIAuBCJ9W5yrqrAztTp8nDMuLz12tLMDtDHdHxeI_WhWmOrRqnALf8OxJY2jnPHqdyOVTsPE2K3cGrxjcX5WynqBL8OXCTu9ymOF-LCuz7S7CUzvcdll9ExRtftwRZNiq-_v4NmQNVC2PbHv8Tznk5A_k-88-UcWXgJN8BRzd7GSOY6rlztH1O?purpose=fullsize)
+
+KY UFO / RTSP
+
+RTSP · UDP heartbeat · Autre famille de communication
+
+La documentation pyDroneWire décrit une variante FLOW-UFO utilisant RTSP, alors que la documentation OpenIPC décrit le FLOW-UFO/BL60x en UDP propriétaire. Nous ne devons donc pas supposer que tous les drones portant ce nom sont identiques. GitHub +1
+
+### Procédure d'identification prévue
+
+Lors de la première connexion, notre application devra recueillir les informations suivantes :
+
+* Nom exact du réseau Wi-Fi, sans supprimer les suffixes.
+
+* Adresse IP attribuée au téléphone.
+
+* Adresse de la passerelle, généralement l'adresse IP du drone.
+
+* Ports UDP/TCP qui répondent.
+
+* Présence ou absence d'un flux RTSP standard.
+
+* Réaction du drone à la séquence de découverte propre à chaque famille.
+
+* Résultat des tests de réception vidéo.
+
+L'application produira ensuite un résultat du type :
+
+```text
+Drone détecté
+  Wi-Fi       : FLOW-UFO-xxxxxx
+  Téléphone   : 192.168.169.x
+  Passerelle  : 192.168.169.1
+  Famille     : FLOW-UFO / BL60x
+  Vidéo       : UDP / MJPEG
+  Commandes   : à vérifier
+  Confiance   : élevée
+```
+
+Le résultat comportera aussi un niveau de confiance et un choix manuel en cas d'ambiguïté. Il faudra éviter les tests de commandes de vol lors de la phase de découverte : la détection initiale sera limitée aux opérations réseau et vidéo non dangereuses.
+
+### 4\. Fonctionnalités que devra posséder l'application
+
+### 4.1. Gestion de la connexion Wi-Fi
+
+L'application devra disposer d'un gestionnaire de connexion dédié.
+
+Fonctions prévues :
+
+* Détection des réseaux de drones à proximité.
+
+* Affichage du SSID et de la puissance du signal.
+
+* Connexion à un réseau sélectionné, avec validation Android.
+
+* Gestion des réseaux sans accès Internet.
+
+* Détection de perte de connexion.
+
+* Tentatives de reconnexion contrôlées.
+
+* Conservation des profils de drones connus.
+
+* Diagnostic du réseau et export des journaux.
+
+Sur Android 10 et supérieur, l'API `WifiNetworkSpecifier` est prévue pour demander une connexion à un équipement pair qui expose son propre point d'accès. Il faudra également lier les sockets UDP/TCP à l'objet `Network` correspondant. Sinon, Android pourrait utiliser une autre interface réseau ou la connexion mobile pour envoyer des paquets destinés au drone. Android Developers +2
+
+Une particularité à gérer : certains drones n'acceptent qu'un seul client vidéo à la fois. L'application devra donc détecter les situations où l'application propriétaire utilise déjà la caméra et expliquer à l'utilisateur qu'il faut la fermer avant de recommencer la connexion. GitHub +1
+
+### 4.2. Réception vidéo et caméra FPV
+
+Le flux vidéo sera un sous-système totalement indépendant du pilotage.
+
+Fonctions essentielles :
+
+* Affichage FPV en direct.
+
+* Affichage plein écran et mode paysage.
+
+* Gestion de l'orientation et de la rotation.
+
+* Bascule caméra avant/arrière lorsque le drone le permet.
+
+* Gestion de la qualité et des paramètres de flux lorsqu'ils sont disponibles.
+
+* Reconnexion automatique.
+
+* Affichage de l'état du flux, de la latence et des pertes de trames.
+
+* Capture d'images.
+
+* Enregistrement vidéo local.
+
+* Historique des sessions.
+
+Le moteur vidéo devra gérer plusieurs formats :
+
+| Type de flux                    | Traitement prévu                                               |
+| ------------------------------- | -------------------------------------------------------------- |
+| MJPEG propriétaire              | Réassemblage des fragments UDP puis décodage JPEG              |
+| RTSP / H.264                    | Récepteur RTSP puis décodage Android                           |
+| RTSP / H.265                    | Récepteur compatible HEVC puis décodage Android                |
+| Jieli / CTP                     | Récepteur spécifique puis reconstruction des trames            |
+| H.264 sur TCP                   | Récepteur et décodeur correspondant à la famille Lewei         |
+| Autres protocoles propriétaires | Nouveau module de transport sans modifier l'interface générale |
+
+Pour le décodage des formats H.264/H.265, on privilégiera `MediaCodec` lorsqu'il est compatible avec le flux et le matériel. Pour les flux JPEG, un chemin de décodage adapté aux images sera nécessaire.
+
+Point de conception important : les images décodées devront être disponibles à la fois pour l'affichage et pour le moteur IA. Il ne faut pas créer deux chaînes de décodage coûteuses si un même flux peut être partagé.
+
+### 4.3. Pilotage manuel
+
+Le pilotage sera ajouté progressivement, une fois le protocole exact identifié et validé.
+
+Commandes qui pourront être présentes, lorsque le drone les prend effectivement en charge :
+
+* Joysticks virtuels : throttle, yaw, pitch et roll.
+
+* Décollage.
+
+* Atterrissage normal.
+
+* Arrêt d'urgence.
+
+* Calibration du gyroscope.
+
+* Changement de vitesse.
+
+* Mode headless.
+
+* Flip.
+
+* Changement de caméra.
+
+* Réglage d'inclinaison de caméra.
+
+* Contrôle avec manette Bluetooth.
+
+L'interface ne devra jamais afficher une commande générique comme disponible si le drone n'implémente pas cette fonction.
+
+Nous aurons aussi une machine à états de vol pour empêcher les actions incohérentes : `Disconnected`, `Connected`, `Ready`, `Arming`, `Flying`, `Landing`, `Emergency` et `Fault`.
+
+Une distinction essentielle sera faite entre l'atterrissage et l'arrêt d'urgence : couper les moteurs en vol n'est pas équivalent à poser normalement l'appareil et peut provoquer une chute.
+
+### 4.4. Intelligence artificielle embarquée
+
+C'est l'une des fonctions centrales du projet.
+
+L'IA fonctionnera directement sur le téléphone, sans envoi obligatoire des images vers Internet.
+
+Détection des visages
+
+* Localisation d'un ou plusieurs visages.
+
+* Encadrement de chaque visage.
+
+* Détection des points faciaux.
+
+* Suivi du visage sélectionné.
+
+* Indication de la position et de la confiance de détection.
+
+Détection des personnes
+
+* Détection du corps humain.
+
+* Localisation de la personne dans l'image.
+
+* Détection de la posture.
+
+* Estimation des points du corps.
+
+* Suivi d'une ou plusieurs personnes.
+
+Détection d'objets
+
+* Détection de véhicules, animaux, objets courants et autres catégories prises en charge par le modèle.
+
+* Encadrement et étiquette de chaque détection.
+
+* Niveau de confiance.
+
+* Sélection des catégories recherchées.
+
+* Possibilité d'intégrer ultérieurement des modèles spécialisés.
+
+Suivi visuel
+
+* Attribution d'un identifiant à chaque objet suivi.
+
+* Conservation de l'identifiant entre les images.
+
+* Gestion de l'objet momentanément masqué.
+
+* Tentative de récupération de la cible.
+
+* Trajectoire passée.
+
+* Position dans l'image.
+
+* Estimation de la direction du mouvement.
+
+* Verrouillage manuel d'une cible.
+
+À noter : un identifiant de suivi est un identifiant technique propre à une session. Il permet de suivre le même objet dans la séquence vidéo, mais ne signifie pas que le logiciel connaît l'identité réelle de la personne.
+
+Mode de suivi de cible
+
+Dans une première version, le système se contentera de suivre visuellement le sujet et de déplacer son encadrement dans l'image. Une version ultérieure pourra aider à centrer le sujet ou à guider le pilote. Le suivi visuel ne doit pas, à lui seul, déclencher des commandes autonomes de vol.
+
+### 4.5. Interface utilisateur et cockpit
+
+L'interface devra être pensée comme un véritable poste de pilotage, et non comme une simple page contenant une vidéo et quelques boutons.
+
+![Fly App - Go for Drone models - Téléchargement de l'APK pour Android | Aptoide](https://images.openai.com/static-rsc-4/mPXywVoS42AdxKppBPnt89GfaEy1Eguv1cjOmco-iRnha4TvopQZ8eJE_gNqa8vihdkpP2NrAxZJGA51CdtCo78TZAxlBx4Zyv_Km3jt_yLV1_g0fVxhCXNiQVWURMoVUUlAVFAkcjh17Ll0qtu7NqYcaSLSkU5qYG5VyKPG5juRpgVJ23RRbgIU4kANpWHi?purpose=fullsize)
+
+Écrans prévus :
+
+* Accueil : drones détectés, appareils récemment connectés, état de connexion.
+
+* Assistant de connexion : sélection Wi-Fi, détection du protocole et diagnostics.
+
+* Cockpit : vidéo en direct, commandes, télémétrie et indicateurs de connexion.
+
+* Centre IA : sélection des détecteurs, choix de la cible, suivi et réglages.
+
+* Enregistrements : vidéos, captures, sessions et métadonnées.
+
+* Gestion des modèles : modèles IA installés, versions et performances mesurées.
+
+* Paramètres du drone : profil, commandes disponibles, sens des axes, vitesse et calibration.
+
+* Diagnostic : journaux réseau, vidéo, IA et contrôleur.
+
+L'interface devra s'adapter à la taille de l'écran, au mode paysage et aux commandes tactiles. Elle pourra proposer des thèmes clair et sombre.
+
+### 5\. Architecture de l'application
+
+Le projet sera un logiciel Android natif écrit principalement en Kotlin. Jetpack Compose sera utilisé pour l'interface. C++ ne sera introduit que si une partie du traitement d'image ou du décodage nécessite réellement une optimisation native.
+
+### 5.1. Organisation des modules
+
+Voici la structure cible :
+
+```text
+UniversalDrone/
+│
+├── app/
+│   ├── MainActivity
+│   ├── navigation/
+│   └── lifecycle/
+│
+├── core/
+│   ├── models/
+│   ├── events/
+│   ├── capabilities/
+│   └── utilities/
+│
+├── connectivity/
+│   ├── wifi/
+│   ├── network/
+│   ├── discovery/
+│   └── diagnostics/
+│
+├── protocols/
+│   ├── protocol-api/
+│   ├── flow-ufo/
+│   ├── cooingdv/
+│   ├── jieli/
+│   ├── s2x/
+│   ├── lewei/
+│   ├── wifi-cam/
+│   ├── x69-lg/
+│   └── registry/
+│
+├── video/
+│   ├── transport/
+│   ├── decoder/
+│   ├── frame-pipeline/
+│   ├── renderer/
+│   └── recorder/
+│
+├── vision/
+│   ├── mediapipe/
+│   ├── litert/
+│   ├── model-manager/
+│   └── preprocessing/
+│
+├── tracking/
+│   ├── object-tracker/
+│   ├── face-tracker/
+│   ├── optical-flow/
+│   └── trajectory/
+│
+├── flight/
+│   ├── controller/
+│   ├── state-machine/
+│   ├── safety/
+│   └── input/
+│
+├── storage/
+│   ├── drone-profiles/
+│   ├── sessions/
+│   ├── recordings/
+│   └── logs/
+│
+├── ui/
+│   ├── home/
+│   ├── connection/
+│   ├── cockpit/
+│   ├── vision/
+│   └── settings/
+│
+└── benchmark/
+    ├── video-benchmark/
+    └── ai-benchmark/
+```
+
+### 5.2. Interfaces communes
+
+Chaque protocole devra respecter des interfaces communes. Par exemple :
+
+```kotlin
+interface DroneVideoSource {
+    suspend fun connect()
+    suspend fun disconnect()
+    fun frames(): Flow<VideoFrame>
+}
+
+interface FlightController {
+    suspend fun takeOff()
+    suspend fun land()
+    suspend fun emergencyStop()
+    suspend fun sendStickInput(input: StickInput)
+}
+
+interface DroneProtocolAdapter {
+    val descriptor: ProtocolDescriptor
+    val capabilities: DroneCapabilities
+
+    suspend fun identify(
+        context: NetworkContext
+    ): DetectionResult
+
+    suspend fun connect()
+    suspend fun disconnect()
+}
+```
+
+Ces interfaces sont des bases de conception, pas des implémentations déjà validées.
+
+Le principe est que les composants puissent fonctionner séparément :
+
+* Un drone peut fournir de la vidéo sans exposer de commandes.
+
+* Un autre peut proposer des commandes sans télémétrie détaillée.
+
+* Un modèle peut disposer d'une caméra avant et arrière.
+
+* Un autre peut n'avoir qu'une seule caméra.
+
+* Certains peuvent fournir une estimation de l'altitude, d'autres aucune information exploitable.
+
+Les capacités doivent donc être déclarées explicitement par chaque adaptateur.
+
+### 5.3. Gestion des flux vidéo
+
+Les images seront représentées par un objet commun contenant au minimum :
+
+* Les données de l'image ou une référence à sa mémoire.
+
+* L'heure de réception.
+
+* L'heure de capture estimée, lorsqu'elle est disponible.
+
+* La résolution.
+
+* L'orientation.
+
+* Le protocole d'origine.
+
+Le flux sera partagé entre deux consommateurs : affichage et analyse IA.
+
+La file d'attente IA sera limitée : elle traitera l'image la plus récente plutôt que d'accumuler des images anciennes. Cette stratégie est essentielle pour éviter d'afficher des résultats de détection correspondant à une situation qui a déjà changé. Android documente une stratégie similaire `STRATEGY_KEEP_ONLY_LATEST`, qui abandonne les images intermédiaires lorsqu'un analyseur ne suit pas le rythme. Android Developers +1
+
+### 6\. Choix de la technologie IA et des performances
+
+Pour ce projet, je recommande de ne pas intégrer le TensorFlow complet. Il faut utiliser les composants adaptés au déploiement mobile.
+
+MediaPipe Tasks
+
+Première version
+
+[Documentation Android](https://developers.google.com/edge/mediapipe/solutions/setup_android?utm_source=chatgpt.com)
+
+Ce sera le moyen le plus rapide de mettre en place les fonctions IA courantes : détection du visage, points faciaux, pose et détection d'objets. Il existe des tâches Android prêtes à intégrer et des modes de traitement en flux vidéo. Le guide Android indique `minSdk = 28`, compatible avec notre cible Android 10. Google for Developers +2
+
+LiteRT
+
+Moteur de modèles personnalisés
+
+[Documentation Android](https://developers.google.com/edge/litert/android?utm_source=chatgpt.com)
+
+LiteRT, le successeur de TensorFlow Lite, sera utilisé pour exécuter des modèles personnalisés avec le chemin `CompiledModel`. Il permet de viser le CPU, le GPU et, sur les appareils compatibles, le NPU. Le choix réel du backend sera mesuré sur le Galaxy S9 plutôt que supposé. Google for Developers +1
+
+OpenCV
+
+[Site officiel](https://opencv.org/?utm_source=chatgpt.com)
+
+Il complétera MediaPipe et LiteRT pour les opérations de vision classiques : flux optique, suivi de points, transformations d'image, filtrage et autres traitements légers.
+
+ByteTrack / SORT
+
+[ByteTrack-V2](https://github.com/ifzhang/ByteTrack-V2?utm_source=chatgpt.com) · [SORT](https://github.com/abewley/sort?utm_source=chatgpt.com)
+
+Un algorithme de suivi multi-objets permettra de maintenir les identifiants des personnes ou objets entre les détections. Le dépôt ByteTrack-V2 indique une licence MIT ; l'algorithme devra être adapté au flux et à la puissance du téléphone. GitHub +1
+
+### 6.1. Modèles IA de départ
+
+| Fonction               | Technologie de départ                            | Objectif                                    |
+| ---------------------- | ------------------------------------------------ | ------------------------------------------- |
+| Détection de visage    | MediaPipe Face Detector                          | Localiser les visages                       |
+| Points du visage       | MediaPipe Face Landmarker                        | Yeux, nez, bouche et repères faciaux        |
+| Détection de personnes | MediaPipe Object Detector ou modèle LiteRT léger | Trouver et localiser les personnes          |
+| Détection générale     | EfficientDet Lite ou SSD MobileNet               | Détecter les objets courants                |
+| Pose humaine           | MediaPipe Pose Landmarker                        | Estimer les articulations et postures       |
+| Suivi d'objets         | ByteTrack ou tracker léger de type SORT          | Maintenir les identifiants entre les images |
+| Déplacement visuel     | OpenCV / Lucas-Kanade                            | Estimer le mouvement entre images           |
+
+On commencera par un détecteur à la fois, afin de connaître le coût réel de chaque modèle sur le téléphone. On évitera de lancer simultanément plusieurs modèles lourds sans mesurer leur impact thermique et énergétique.
+
+### 6.2. Accélération sur le Galaxy S9
+
+Le Galaxy S9 SM-G960U constitue notre appareil de référence. Son GPU Adreno 630 est un candidat à l'accélération GPU, mais rien ne garantit que chaque modèle et chaque opérateur fonctionneront plus rapidement avec cette voie.
+
+Nous mesurerons :
+
+* CPU seul.
+
+* GPU avec le backend disponible.
+
+* NPU/DSP uniquement si le runtime et le matériel reconnaissent réellement cette combinaison.
+
+* Temps d'inférence.
+
+* Images traitées par seconde.
+
+* Latence entre la réception de l'image et l'apparition de la détection.
+
+* Consommation mémoire.
+
+* Température après une utilisation prolongée.
+
+Le but initial sera d'obtenir environ 5 à 10 inférences IA par seconde, tout en gardant l'affichage vidéo fluide. C'est une cible expérimentale, pas une performance garantie. Le suivi entre les inférences permettra de maintenir les encadrements visuels sans exécuter un détecteur lourd sur chaque image.
+
+### 7\. Suivi visuel avancé et fonctions intelligentes
+
+Le suivi visuel sera une couche supplémentaire au-dessus de la détection IA. Il ne faudra pas le confondre avec la stabilisation du drone ni avec un pilote automatique.
+
+### 7.1. Les différents modes de suivi
+
+| Mode                  | Comportement                                               |
+| --------------------- | ---------------------------------------------------------- |
+| Face Tracking         | Suit un visage sélectionné                                 |
+| Person Tracking       | Suit une personne dans son ensemble                        |
+| Multi-Object Tracking | Suit plusieurs objets simultanément                        |
+| Object Lock           | Verrouille une cible choisie manuellement                  |
+| Trajectory Tracking   | Affiche la trajectoire visuelle d'une cible                |
+| Center Tracking       | Affiche l'écart entre la cible et le centre de l'image     |
+| Target Lost           | Signale la perte de la cible et tente de la retrouver      |
+| Detection Zones       | Détecte les objets dans une zone définie par l'utilisateur |
+
+### 7.2. Fonctionnement technique
+
+Le système devra associer les résultats du détecteur avec un tracker temporel.
+
+Exemple :
+
+* L'IA détecte trois personnes.
+
+* Le moteur de suivi leur attribue les identifiants `P01`, `P02` et `P03`.
+
+* À l'image suivante, le tracker compare les positions et les mouvements.
+
+* Il maintient les identifiants lorsqu'il retrouve les mêmes sujets.
+
+* Lorsqu'une personne disparaît momentanément derrière un obstacle, le tracker tente de retrouver sa trajectoire.
+
+* Si elle n'est plus retrouvée, l'identifiant passe à l'état lost avant d'être éventuellement supprimé.
+
+L'interface affichera les identifiants, les boîtes de détection, les trajectoires, les scores de confiance et les informations utiles au pilote.
+
+### 7.3. Stabilisation visuelle
+
+Une fonction complémentaire pourra analyser le mouvement du sol à partir de la caméra orientée vers le bas.
+
+Le projet pyDroneWire utilise une approche Lucas-Kanade pour mesurer le déplacement des éléments visuels et estimer la dérive latérale, longitudinale et la rotation. GitHub
+
+Nous pourrons développer trois niveaux :
+
+* Niveau 1 — Analyse : afficher le mouvement estimé sans envoyer de commande.
+
+* Niveau 2 — Assistance : signaler au pilote une dérive visuelle.
+
+* Niveau 3 — Correction expérimentale : utiliser la mesure dans une boucle de correction, uniquement sur un drone dont le protocole et les caractéristiques ont été vérifiés.
+
+Ce système ne remplace pas un véritable capteur de position ou un contrôleur de vol. Il dépend notamment de la visibilité du sol, de sa texture, de l'altitude et du délai de communication.
+
+### 7.4. Suivi automatique d'une cible
+
+À terme, on pourra envisager un mode dans lequel l'application aide le drone à garder une personne dans le champ de vision.
+
+Il faut néanmoins séparer deux fonctionnalités :
+
+* Suivi de caméra : l'application maintient un cadre autour d'une personne, ou ajuste une caméra motorisée si le drone le permet.
+
+* Suivi de vol : le drone modifie lui-même sa position pour suivre une personne.
+
+La seconde fonction est beaucoup plus risquée. Elle nécessiterait une maîtrise suffisante du protocole de commande, une télémétrie fiable, une estimation de position et des mécanismes de sécurité éprouvés.
+
+Elle ne fera donc pas partie de la première version.
+
+### 8\. Architecture multi-drones et protocoles à prendre en charge
+
+Le but est d'obtenir une architecture extensible, pas de prétendre que tous les drones chinois sont compatibles.
+
+Chaque famille sera ajoutée sous forme d'un adaptateur séparé.
+
+### 8.1. Ordre de prise en charge
+
+| Priorité | Famille                | Vidéo                     | Pilotage               | Base documentaire    |
+| -------- | ---------------------- | ------------------------- | ---------------------- | -------------------- |
+| P0       | FLOW-UFO / BL60x       | À valider sur notre drone | À vérifier séparément  | OpenIPC + TurboDrone |
+| P1       | WiFi UAV               | UDP/MJPEG selon variante  | À valider selon modèle | TurboDrone           |
+| P2       | KY UFO / CooingDV RTSP | RTSP                      | À valider par modèle   | OpenIPC + TurboDrone |
+| P3       | Jieli / HF             | CTP et UDP                | À valider              | OpenIPC + TurboDrone |
+| P4       | S2x                    | Selon modèle              | Selon modèle           | TurboDrone           |
+| P5       | Lewei                  | H.264                     | Selon modèle           | OpenIPC              |
+| P6       | WiFi_CAM               | UDP propriétaire          | Selon modèle           | TurboDrone           |
+| P7       | X69 / LG               | RTSP ou UDP H.265         | Selon modèle           | TurboDrone           |
+
+Les protocoles `wifi_uav`, `cooingdv`, `cooingdv_jieli`, `s2x`, `wifi_cam` et `x69_lg` figurent dans les configurations de TurboDrone. OpenIPC documente de son côté les familles FLOW-UFO, KY UFO RTSP, Jieli/HF et Lewei. GitHub +1
+
+### 8.2. Ce que signifie réellement « universelle »
+
+L'application devra reconnaître les caractéristiques techniques du drone plutôt que se fier uniquement à son nom commercial.
+
+Par exemple, plusieurs vendeurs peuvent utiliser les appellations E88, E99, S20, V88, etc., pour des appareils présentant des cartes électroniques et des logiciels différents.
+
+Chaque profil comportera :
+
+```text
+DroneProfile
+  ├── Identité
+  │    ├── Nom commercial
+  │    ├── Nom Wi-Fi
+  │    └── Famille technique
+  │
+  ├── Réseau
+  │    ├── Adresse IP
+  │    ├── Ports
+  │    ├── Protocole
+  │    └── Séquence de connexion
+  │
+  ├── Vidéo
+  │    ├── Transport
+  │    ├── Codec
+  │    ├── Résolution
+  │    └── Caméras disponibles
+  │
+  ├── Pilotage
+  │    ├── Axes
+  │    ├── Fréquence d'envoi
+  │    ├── Commandes
+  │    └── Procédure d'arrêt
+  │
+  └── Capacités
+       ├── Télémétrie
+       ├── Calibration
+       ├── Modes de vitesse
+       └── Options spécifiques
+```
+
+Un drone qui n'a jamais été testé ne devra jamais être déclaré compatible à 100 % simplement parce que son SSID ressemble à celui d'un modèle connu.
+
+### 9\. Sécurité et fiabilité du pilotage
+
+C'est une partie essentielle, notamment parce que nous allons remplacer une application de pilotage propriétaire par une implémentation reconstruite.
+
+### 9.1. Séparation obligatoire des commandes et de l'IA
+
+L'IA ne doit jamais envoyer directement de commandes de vol.
+
+Le parcours doit être :
+
+```text
+Détection IA
+    ↓
+Suivi de cible
+    ↓
+Suggestion / information visuelle
+    ↓
+Contrôleur de vol indépendant
+    ↓
+Validation des conditions de sécurité
+    ↓
+Adaptateur de protocole
+    ↓
+Drone
+```
+
+Dans la première version, la chaîne s'arrête à la suggestion visuelle : aucun ordre de vol automatique ne sera généré par le suivi de personne ou d'objet.
+
+### 9.2. Protections prévues
+
+* Verrouillage du pilotage tant que le protocole n'est pas identifié.
+
+* Commandes de vol désactivées par défaut pendant les tests vidéo.
+
+* Confirmation volontaire pour l'armement.
+
+* Zone tactile distincte pour l'arrêt d'urgence.
+
+* Limitation des commandes selon les possibilités du drone.
+
+* Détection des pertes de connexion.
+
+* Arrêt ou neutralisation des commandes répétées en cas d'erreur.
+
+* Contrôle des valeurs envoyées aux axes.
+
+* Surveillance du rythme d'envoi des paquets.
+
+* État de vol visible à tout moment.
+
+* Journalisation des événements de pilotage.
+
+* Interruption de toute assistance IA en cas de perte du flux vidéo.
+
+Il faudra aussi tester ce que fait réellement chaque drone lorsqu'il perd le signal. Certains peuvent conserver momentanément leur dernière commande, d'autres réagir différemment. Nous ne devons pas inventer un comportement de sécurité à partir d'un autre modèle.
+
+### 9.3. Procédures de test
+
+Les tests de commandes se feront par étapes :
+
+* Connexion réseau et diagnostic, sans commande de vol.
+
+* Vérification des commandes à l'aide de captures réseau et d'un état moteur désactivé.
+
+* Vérification de la neutralité des sticks et de la bonne correspondance des axes.
+
+* Tests de commande avec les hélices retirées lorsque cela est possible et approprié.
+
+* Tests de vol supervisés, dans une zone dégagée, avec protections et en respectant les règles locales applicables.
+
+* Tests de perte Wi-Fi, de récupération vidéo et de fonctionnement des procédures d'urgence.
+
+Un arrêt d'urgence qui coupe les moteurs peut provoquer une chute. Il devra donc rester distinct de l'atterrissage normal.
+
+### 10\. Stockage, profils et confidentialité
+
+L'application devra pouvoir fonctionner entièrement hors ligne après son installation et le chargement de ses modèles IA.
+
+### Données stockées localement
+
+* Profils des drones.
+
+* Protocoles identifiés.
+
+* Préférences de pilotage.
+
+* Paramètres IA.
+
+* Modèles installés.
+
+* Historique des connexions.
+
+* Journaux de diagnostic.
+
+* Captures d'écran.
+
+* Vidéos enregistrées.
+
+* Résultats de suivi éventuellement exportés.
+
+Les enregistrements et analyses resteront locaux par défaut. L'utilisateur pourra les exporter manuellement.
+
+La gestion des visages servira au suivi visuel, pas à l'identification biométrique de l'identité des personnes. La première version ne nécessitera donc pas de base de données de visages.
+
+Nous prévoirons également un bouton pour supprimer les sessions et les fichiers de données enregistrés.
+
+### 11\. Technologies et dépendances retenues
+
+Voici la sélection recommandée pour notre première architecture.
+
+| Domaine             | Technologie                               | Rôle                                         |
+| ------------------- | ----------------------------------------- | -------------------------------------------- |
+| Langage             | Kotlin                                    | Logique Android et protocoles                |
+| Interface           | Jetpack Compose                           | Cockpit et écrans                            |
+| Architecture        | Android Architecture Components           | Cycle de vie, état et séparation des couches |
+| Concurrence         | Kotlin Coroutines / Flow                  | Flux vidéo, réseau et événements             |
+| Wi-Fi               | Android Connectivity / Wifi APIs          | Connexion au drone                           |
+| UDP / TCP           | Java/Kotlin Sockets                       | Protocoles propriétaires                     |
+| Vidéo H.264/H.265   | MediaCodec                                | Décodage matériel                            |
+| Flux RTSP           | Implémentation RTSP intégrée et maintenue | Réception des flux standard                  |
+| IA prête à l'emploi | MediaPipe Tasks                           | Détection et landmarks                       |
+| IA personnalisée    | LiteRT CompiledModel                      | Modèles spécifiques et accélération          |
+| Vision classique    | OpenCV                                    | Flux optique et traitement d'image           |
+| Tracking            | ByteTrack adapté / tracker léger          | Suivi multi-objets                           |
+| Base de données     | Room / SQLite                             | Profils et paramètres                        |
+| Préférences         | DataStore                                 | Réglages                                     |
+| Tests               | JUnit + Android Instrumentation           | Vérification et régression                   |
+
+On gardera C++/NDK comme possibilité pour les traitements intensifs, mais pas comme exigence de départ. L'objectif est de limiter la complexité et de conserver le plus possible de code réutilisable en Kotlin.
+
+### 12\. Plan de réalisation par étapes
+
+Je recommande de travailler par versions fonctionnelles. Chaque étape devra produire un résultat testable sur le téléphone avant d'ajouter de nouvelles fonctions.
+
+* Phase 0 — Identification matérielle et protocolaire
+
+    Préalable obligatoire
+
+    Vérifier le SSID complet, l'adresse de la passerelle, le sous-réseau, la famille technique, le type de vidéo et les réponses réseau du drone.
+
+    Livrable : fiche technique du drone de référence, avec les résultats de diagnostic et le niveau de confiance.
+
+* Phase 1 — Validation de la vidéo existante
+
+    Utiliser OpenIPC Decoder sur le Galaxy S9. Vérifier le flux avec le protocole identifié, mesurer la stabilité et récupérer les journaux en cas d'échec.
+
+    Livrable : vidéo FPV effectivement reçue et rapport de test documenté.
+
+* Phase 2 — Base Android
+
+    Créer le projet Kotlin, structurer les modules, développer le gestionnaire Wi-Fi, la découverte du drone et le registre des protocoles.
+
+    Livrable : application capable de trouver le réseau, s'y connecter et identifier le protocole ou signaler une identification incertaine.
+
+* Phase 3 — Adaptateur vidéo FLOW-UFO
+
+    Implémenter le transport UDP, la reconstruction des fragments MJPEG, le décodage et le rendu vidéo.
+
+    Ajouter la gestion d'erreur, la reconnexion et les statistiques de performance.
+
+    Livrable : flux FPV dans notre propre application, sans dépendance à l'application propriétaire.
+
+* Phase 4 — Première interface cockpit
+
+    Développer l'affichage vidéo, les indicateurs réseau, le plein écran, les captures d'image, les enregistrements et les réglages de session.
+
+    Livrable : application FPV réellement utilisable.
+
+* Phase 5 — Banc de mesure IA
+
+    Intégrer MediaPipe et LiteRT dans une application de test, charger les modèles et mesurer leurs performances sur le S9.
+
+    Comparer CPU, GPU et éventuelles possibilités d'accélération supplémentaire.
+
+    Livrable : rapport de benchmark et sélection des premiers modèles.
+
+* Phase 6 — IA intégrée au flux vidéo
+
+    Connecter les images décodées au moteur d'analyse. Ajouter la détection de visages, personnes et objets, puis afficher les résultats au-dessus de la vidéo.
+
+    Livrable : FPV avec détections IA en direct, sans bloquer l'affichage.
+
+* Phase 7 — Suivi multi-objets
+
+    Implémenter les identifiants persistants, la sélection de cible, les trajectoires, le verrouillage visuel et la gestion des pertes de cible.
+
+    Livrable : plusieurs personnes et objets suivis simultanément dans le flux vidéo.
+
+* Phase 8 — Pilotage du premier protocole
+
+    Après validation matérielle, intégrer les commandes de vol du protocole exact, les sticks virtuels, le décollage, l'atterrissage et les fonctions reconnues.
+
+    Livrable : pilotage manuel vérifié et mécanismes de sécurité spécifiques au drone.
+
+* Phase 9 — Extensions multi-protocoles
+
+    Intégrer progressivement KY UFO RTSP, Jieli, S2x, Lewei, WiFi_CAM, X69 et les autres familles pour lesquelles des informations et des tests fiables sont disponibles.
+
+    Livrable : registre de compatibilité évolutif et profils par famille.
+
+* Phase 10 — Stabilisation et distribution
+
+    Effectuer les tests de régression, corriger les problèmes thermiques et réseau, préparer la documentation, les builds APK et les journaux de diagnostic.
+
+    Livrable : première version stable distribuable.
+
+### 13\. Critères d'acceptation et tests
+
+Il faut définir dès maintenant ce que signifie « fonctionnel ».
+
+| Domaine         | Résultat attendu                                                             |
+| --------------- | ---------------------------------------------------------------------------- |
+| Connexion Wi-Fi | Connexion stable au réseau du drone sans basculement réseau intempestif      |
+| Identification  | Famille et protocole exacts identifiés ou incertitude explicitement signalée |
+| Vidéo           | Flux visible, réassemblé correctement et sans corruption persistante         |
+| Latence         | Mesurée et affichée, sans accumulation de trames anciennes                   |
+| Reconnexion     | Récupération après perte réseau selon le comportement du drone               |
+| IA              | Détections cohérentes et résultats horodatés                                 |
+| Tracking        | Identifiants maintenus tant que le suivi est fiable                          |
+| Performance     | Vidéo et IA fonctionnent simultanément sans blocage de l'interface           |
+| Thermique       | Utilisation prolongée sans ralentissement excessif ni arrêt inattendu        |
+| Pilotage        | Chaque commande validée sur le matériel compatible                           |
+| Sécurité        | Interverrouillages, arrêt d'urgence et perte de réseau testés                |
+| Enregistrement  | Fichiers vidéo et images lisibles après la session                           |
+
+Pour le benchmark, on enregistrera également le taux d'inférence, la latence médiane et au 95e percentile, le taux de trames supprimées, l'utilisation mémoire et le comportement thermique après 10 à 15 minutes de fonctionnement continu.
+
+Les performances seront mesurées sur le S9 lui-même. Un résultat observé sur un Pixel récent ou un autre appareil Snapdragon ne constituera pas une preuve de performance sur notre téléphone.
+
+### 14\. Décisions définitives du projet
+
+Pour éviter de partir dans plusieurs directions, voici les choix que je recommande de retenir :
+
+| Décision                            | Choix retenu                                   |
+| ----------------------------------- | ---------------------------------------------- |
+| Plateforme cible initiale           | Android                                        |
+| Langage principal                   | Kotlin                                         |
+| Interface                           | Jetpack Compose                                |
+| Téléphone de référence              | Samsung Galaxy S9 SM-G960U                     |
+| Premier drone                       | FLOW-UFO                                       |
+| Base de recherche vidéo             | OpenIPC Decoder                                |
+| Base de recherche protocoles        | TurboDrone                                     |
+| IA prête à l'emploi                 | MediaPipe Tasks                                |
+| Runtime IA personnalisé             | LiteRT                                         |
+| Traitement d'image                  | OpenCV                                         |
+| Suivi multi-objets                  | ByteTrack ou implémentation légère équivalente |
+| Exécution IA                        | Locale, sans cloud obligatoire                 |
+| Architecture                        | Modulaire, multi-protocoles                    |
+| Première fonction à terminer        | Vidéo FPV                                      |
+| Première fonction IA à terminer     | Détection et suivi visuel                      |
+| Première fonction de vol à terminer | Pilotage manuel vérifié                        |
+| Autonomie de vol                    | Exclue de la première version                  |
+
+### 15\. Ce qui ne devra pas être oublié dans les versions futures
+
+Au-delà du premier objectif, nous conserverons des points d'extension pour :
+
+* Gestion de plusieurs caméras et bascule rapide.
+
+* Manette Bluetooth ou USB.
+
+* Profils de commandes personnalisables.
+
+* Réglage fin de la sensibilité des sticks.
+
+* Modèles IA personnalisés et catégories d'objets supplémentaires.
+
+* Détection de gestes.
+
+* Suivi d'une cible sélectionnée.
+
+* Analyse de mouvement et de dérive.
+
+* Historique de vols avec données disponibles.
+
+* Export des vidéos avec HUD.
+
+* Capture d'images déclenchée manuellement ou par événement.
+
+* Diagnostic réseau et rapports exportables.
+
+* Ajout de nouveaux protocoles par modules.
+
+* Gestion des modèles IA indépendamment des versions de l'application.
+
+* Mise à jour des profils de compatibilité.
+
+En revanche, nous ne promettrons pas de GPS, de retour automatique au point de départ, d'altitude précise ou d'évitement d'obstacles sur un drone qui ne possède pas les capteurs et les capacités nécessaires.
+
+### 16\. Notre première action concrète
+
+Avant d'écrire le contrôleur de vol, je propose de réaliser une première validation vidéo sur le matériel réel.
+
+Étape initiale : OpenIPC Decoder sur le Galaxy S9
+
+![dream Player IPTV for Android TV for Android - Download the APK from Uptodown](https://images.openai.com/static-rsc-4/aAAcaW5a7ZhU7tYrEy2zgmrlKCZZV0VB4WONhQiYRXVZnc8fuBGl0CMqteuxQVtwnYqF7Q7zWZSZZkF2E_jtaWjUX5MzGSzqvaQY1SpXWW-thFmIccWXa2rVevwec85yBejTN_rbGQV6zB9fBbnUC72_sUHI2t685ZRqcRKg-BFrgbQ9g1Cp2EjvkCMsLZ89?purpose=fullsize)
+
+OpenIPC Decoder v2
+
+Application de référence pour le flux vidéo
+
+[Télécharger l'APK](https://github.com/OpenIPC/decoder/releases/latest/download/decoder-v2.apk?utm_source=chatgpt.com)
+
+Vérifications à effectuer :
+
+* Installer l'application sur le S9.
+
+* Allumer le drone et se connecter à son réseau `FLOW-UFO`.
+
+* Accepter de rester connecté même si Android indique que le réseau n'a pas Internet.
+
+* Fermer l'application propriétaire du drone.
+
+* Configurer l'adresse `flowufo://192.168.169.1:8800` si le réseau et la passerelle correspondent à la famille BL60x.
+
+* Vérifier si l'image apparaît et noter le résultat.
+
+La documentation OpenIPC recommande également de consulter les pages de diagnostic `/stats.json` et `/log` si le flux ne démarre pas. GitHub +1
+
+Mon choix final : nous ne devons pas modifier directement l'application KY UFO en espérant qu'elle devienne universelle. Nous allons construire notre propre application Android, exploiter les travaux communautaires compatibles avec leurs licences et intégrer les protocoles sous forme d'adaptateurs indépendants. Cela nous donnera une base beaucoup plus propre pour ajouter les autres drones et surtout les fonctions IA.
+
+Le premier jalon officiel du projet sera donc : recevoir et afficher de manière fiable la vidéo du FLOW-UFO dans notre propre application Android. Une fois ce jalon obtenu, nous pourrons bâtir tout le reste sur une base réellement vérifiée.

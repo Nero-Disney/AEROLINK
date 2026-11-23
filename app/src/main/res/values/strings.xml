@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AeroLink</string>
+    <string name="nav_home">Accueil</string>
+    <string name="nav_connect">Connexion</string>
+    <string name="nav_cockpit">Cockpit</string>
+    <string name="nav_vision">Centre IA</string>
+    <string name="nav_recordings">Médias</string>
+    <string name="nav_models">Modèles</string>
+    <string name="nav_settings">Paramètres</string>
+    <string name="nav_diagnostics">Diagnostic</string>
+    <string name="emergency_stop">ARRÊT D\'URGENCE</string>
+    <string name="take_off">Décollage</string>
+    <string name="land_normal">Atterrissage</string>
+    <string name="arm_motors">Armer</string>
+</resources>

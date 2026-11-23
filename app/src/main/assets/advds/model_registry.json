@@ -1,0 +1,308 @@
+{
+  "registryVersion": "1.0.0",
+  "models": [
+    {
+      "id": "advds.object.yolo26n.onnx",
+      "name": "YOLO26n Détection Générale (ONNX)",
+      "version": "1.0.0",
+      "task": "OBJECT_DETECTION",
+      "family": "YOLO26",
+      "artifact": {
+        "path": "models/yolo26n.onnx",
+        "format": "ONNX",
+        "sizeBytes": 0
+      },
+      "input": {
+        "width": 416,
+        "height": 416,
+        "colorOrder": "RGB",
+        "tensorLayout": "NCHW",
+        "normalization": "0_TO_1",
+        "resizeMode": "LETTERBOX"
+      },
+      "output": {
+        "decoderId": "YOLO26_DETECTION",
+        "coordinateSpace": "MODEL_INPUT",
+        "outputNames": ["output0"]
+      },
+      "labels": [
+        {"id": "0", "name": "person"},
+        {"id": "1", "name": "bicycle"},
+        {"id": "2", "name": "car"},
+        {"id": "3", "name": "motorcycle"},
+        {"id": "4", "name": "airplane"},
+        {"id": "5", "name": "bus"},
+        {"id": "6", "name": "train"},
+        {"id": "7", "name": "truck"},
+        {"id": "8", "name": "boat"},
+        {"id": "9", "name": "traffic light"},
+        {"id": "11", "name": "stop sign"},
+        {"id": "13", "name": "bench"},
+        {"id": "14", "name": "bird"},
+        {"id": "15", "name": "cat"},
+        {"id": "16", "name": "dog"},
+        {"id": "17", "name": "horse"},
+        {"id": "24", "name": "backpack"},
+        {"id": "39", "name": "bottle"},
+        {"id": "56", "name": "chair"},
+        {"id": "58", "name": "potted plant"},
+        {"id": "60", "name": "table"},
+        {"id": "63", "name": "laptop"},
+        {"id": "67", "name": "cell phone"}
+      ],
+      "preferredFramework": "ONNX_RUNTIME",
+      "allowedBackends": ["CPU", "NPU"],
+      "checksumSha256": "EXTERNAL_IMPORT_REQUIRED",
+      "modelLicense": "AGPL-3.0 / Ultralytics",
+      "descriptionFr": "Détecteur multi-classes principal ADVDS (sans NMS). Importer yolo26n.onnx via le Registre.",
+      "supportsCustomClasses": true
+    },
+    {
+      "id": "advds.object.yolo26n.litert",
+      "name": "YOLO26n Détection (LiteRT .tflite)",
+      "version": "1.0.0",
+      "task": "OBJECT_DETECTION",
+      "family": "YOLO26",
+      "artifact": {
+        "path": "models/yolo26n.tflite",
+        "format": "TFLITE",
+        "sizeBytes": 0
+      },
+      "input": {
+        "width": 416,
+        "height": 416,
+        "colorOrder": "RGB",
+        "tensorLayout": "NHWC",
+        "normalization": "0_TO_1",
+        "resizeMode": "LETTERBOX"
+      },
+      "output": {
+        "decoderId": "YOLO26_DETECTION_NHWC",
+        "coordinateSpace": "MODEL_INPUT",
+        "outputNames": ["Identity"]
+      },
+      "labels": [
+        {"id": "0", "name": "person"},
+        {"id": "1", "name": "bicycle"},
+        {"id": "2", "name": "car"},
+        {"id": "3", "name": "motorcycle"},
+        {"id": "5", "name": "bus"},
+        {"id": "7", "name": "truck"},
+        {"id": "9", "name": "traffic light"},
+        {"id": "14", "name": "bird"},
+        {"id": "15", "name": "cat"},
+        {"id": "16", "name": "dog"},
+        {"id": "24", "name": "backpack"},
+        {"id": "39", "name": "bottle"},
+        {"id": "56", "name": "chair"},
+        {"id": "58", "name": "potted plant"},
+        {"id": "63", "name": "laptop"},
+        {"id": "67", "name": "cell phone"}
+      ],
+      "preferredFramework": "LITERT",
+      "allowedBackends": ["CPU", "GPU", "NPU"],
+      "checksumSha256": "EXTERNAL_IMPORT_REQUIRED",
+      "modelLicense": "AGPL-3.0 / Ultralytics",
+      "descriptionFr": "Variante LiteRT pour GPU Adreno 630 / NNAPI. Importer yolo26n.tflite via le Registre.",
+      "supportsCustomClasses": true
+    },
+    {
+      "id": "advds.depth.yolo26n.onnx",
+      "name": "YOLO26n-Depth Profondeur Monoculaire (ONNX)",
+      "version": "1.0.0",
+      "task": "DEPTH_ESTIMATION",
+      "family": "YOLO26_DEPTH",
+      "artifact": {
+        "path": "models/yolo26n-depth.onnx",
+        "format": "ONNX",
+        "sizeBytes": 0
+      },
+      "input": {
+        "width": 768,
+        "height": 768,
+        "colorOrder": "RGB",
+        "tensorLayout": "NCHW",
+        "normalization": "0_TO_1",
+        "resizeMode": "LETTERBOX"
+      },
+      "output": {
+        "decoderId": "YOLO26_DEPTH_MAP",
+        "coordinateSpace": "MODEL_INPUT",
+        "outputNames": ["depth"]
+      },
+      "labels": [],
+      "preferredFramework": "ONNX_RUNTIME",
+      "allowedBackends": ["CPU", "NPU"],
+      "checksumSha256": "EXTERNAL_IMPORT_REQUIRED",
+      "modelLicense": "AGPL-3.0 / Ultralytics",
+      "descriptionFr": "Carte dense basse fréquence (1-2 Hz sur S9). Fallback géométrique actif si absent.",
+      "supportsCustomClasses": false
+    },
+    {
+      "id": "advds.object.mlkit.standard",
+      "name": "ML Kit Object Detector (Générique)",
+      "version": "17.0.2",
+      "task": "OBJECT_DETECTION",
+      "family": "ML_KIT_OBJECT",
+      "artifact": {
+        "path": "bundled://mlkit-object-detection",
+        "format": "MLKIT_BUNDLED",
+        "sizeBytes": 0
+      },
+      "input": {
+        "width": 480,
+        "height": 360,
+        "colorOrder": "RGB",
+        "tensorLayout": "BITMAP",
+        "normalization": "NONE",
+        "resizeMode": "KEEP_ASPECT"
+      },
+      "output": {
+        "decoderId": "MLKIT_OBJECT_MAPPER",
+        "coordinateSpace": "SOURCE_IMAGE",
+        "outputNames": ["detectedObjects"]
+      },
+      "labels": [
+        {"id": "fashion", "name": "Fashion good"},
+        {"id": "food", "name": "Food"},
+        {"id": "home", "name": "Home good"},
+        {"id": "place", "name": "Place"},
+        {"id": "plant", "name": "Plant"}
+      ],
+      "preferredFramework": "ML_KIT",
+      "allowedBackends": ["CPU", "GPU"],
+      "checksumSha256": "BUNDLED_GOOGLE_MLKIT",
+      "modelLicense": "Google ML Kit Terms",
+      "descriptionFr": "Détecteur standard intégré (max 5 objets, catégories génériques). Ne remplace pas YOLO multi-classes.",
+      "supportsCustomClasses": false
+    },
+    {
+      "id": "advds.pose.mlkit.stream",
+      "name": "ML Kit / BlazePose Stream (33 points)",
+      "version": "18.0.0-beta5",
+      "task": "POSE_ESTIMATION",
+      "family": "BLAZEPOSE",
+      "artifact": {
+        "path": "bundled://mlkit-pose-detection",
+        "format": "MLKIT_BUNDLED",
+        "sizeBytes": 0
+      },
+      "input": {
+        "width": 480,
+        "height": 360,
+        "colorOrder": "RGB",
+        "tensorLayout": "BITMAP",
+        "normalization": "NONE",
+        "resizeMode": "KEEP_ASPECT"
+      },
+      "output": {
+        "decoderId": "MLKIT_POSE_33",
+        "coordinateSpace": "SOURCE_IMAGE",
+        "outputNames": ["poseLandmarks"]
+      },
+      "labels": [{"id": "0", "name": "person_pose"}],
+      "preferredFramework": "ML_KIT",
+      "allowedBackends": ["CPU", "GPU"],
+      "checksumSha256": "BUNDLED_GOOGLE_MLKIT",
+      "modelLicense": "Google ML Kit Terms",
+      "descriptionFr": "33 landmarks corporels normalisés + posture et reconnaissance temporelle de gestes.",
+      "supportsCustomClasses": false
+    },
+    {
+      "id": "advds.face.mlkit.fast",
+      "name": "ML Kit Face Detector + Landmarks",
+      "version": "16.1.7",
+      "task": "FACE_DETECTION",
+      "family": "MLKIT_FACE",
+      "artifact": {
+        "path": "bundled://mlkit-face-detection",
+        "format": "MLKIT_BUNDLED",
+        "sizeBytes": 0
+      },
+      "input": {
+        "width": 480,
+        "height": 360,
+        "colorOrder": "RGB",
+        "tensorLayout": "BITMAP",
+        "normalization": "NONE",
+        "resizeMode": "KEEP_ASPECT"
+      },
+      "output": {
+        "decoderId": "MLKIT_FACE_MAPPER",
+        "coordinateSpace": "SOURCE_IMAGE",
+        "outputNames": ["faces"]
+      },
+      "labels": [{"id": "face", "name": "face"}],
+      "preferredFramework": "ML_KIT",
+      "allowedBackends": ["CPU", "GPU"],
+      "checksumSha256": "BUNDLED_GOOGLE_MLKIT",
+      "modelLicense": "Google ML Kit Terms",
+      "descriptionFr": "Localisation faciale rapide (détection uniquement, sans identification biométrique).",
+      "supportsCustomClasses": false
+    },
+    {
+      "id": "advds.barcode.mlkit.markers",
+      "name": "ML Kit Barcode / QR Landing Marker",
+      "version": "17.3.0",
+      "task": "BARCODE",
+      "family": "MLKIT_BARCODE",
+      "artifact": {
+        "path": "bundled://mlkit-barcode-scanning",
+        "format": "MLKIT_BUNDLED",
+        "sizeBytes": 0
+      },
+      "input": {
+        "width": 640,
+        "height": 480,
+        "colorOrder": "RGB",
+        "tensorLayout": "BITMAP",
+        "normalization": "NONE",
+        "resizeMode": "KEEP_ASPECT"
+      },
+      "output": {
+        "decoderId": "MLKIT_BARCODE_CORNERS",
+        "coordinateSpace": "SOURCE_IMAGE",
+        "outputNames": ["barcodes"]
+      },
+      "labels": [{"id": "marker", "name": "landing_marker"}],
+      "preferredFramework": "ML_KIT",
+      "allowedBackends": ["CPU"],
+      "checksumSha256": "BUNDLED_GOOGLE_MLKIT",
+      "modelLicense": "Google ML Kit Terms",
+      "descriptionFr": "Détecteur QR / DataMatrix / Aztec avec 4 coins pour estimation métrique PnP.",
+      "supportsCustomClasses": false
+    },
+    {
+      "id": "advds.motion.lucas_kanade.ransac",
+      "name": "ADVDS Sparse Optical Flow + RANSAC",
+      "version": "1.0.0",
+      "task": "OPTICAL_FLOW",
+      "family": "GEOMETRIC_FLOW",
+      "artifact": {
+        "path": "builtin://sparse-lk-ransac",
+        "format": "BUILTIN_KOTLIN",
+        "sizeBytes": 0
+      },
+      "input": {
+        "width": 96,
+        "height": 54,
+        "colorOrder": "GRAY",
+        "tensorLayout": "LUMA_GRID",
+        "normalization": "0_TO_255",
+        "resizeMode": "STRETCH"
+      },
+      "output": {
+        "decoderId": "RANSAC_CAMERA_MOTION",
+        "coordinateSpace": "SOURCE_IMAGE",
+        "outputNames": ["motionVectors"]
+      },
+      "labels": [],
+      "preferredFramework": "OPENCV",
+      "allowedBackends": ["CPU"],
+      "checksumSha256": "BUILTIN_ENGINE",
+      "modelLicense": "AeroLink ADVDS",
+      "descriptionFr": "Flux optique sparse + séparation RANSAC du mouvement global caméra et résiduel objets.",
+      "supportsCustomClasses": false
+    }
+  ]
+}

@@ -1,0 +1,2381 @@
+# **ADVDS — Spécification technique du système de perception visuelle V1**
+
+**Advanced Drone Vision System · Android natif · Kotlin · Galaxy S9 Snapdragon 845 / Adreno 630 · Architecture multi-runtime**
+
+Je propose de faire évoluer notre projet vers une véritable architecture de perception robotique embarquée, inspirée des systèmes de vision utilisés en robotique mobile.
+
+L'idée est de ne pas construire une collection de fonctionnalités indépendantes (YOLO, pose, segmentation, profondeur, etc.), mais un système cohérent qui transforme le flux vidéo du drone en une représentation exploitable de son environnement.
+
+Il devra être capable de répondre à six grandes questions :
+
+1. **Qu'est-ce qui est visible ?** Détection et classification.
+2. **Qu'est-ce que je regarde exactement ?** Reconnaissance et identification des cibles.
+3. **Où se trouve chaque élément dans l'image ?** Localisation et tracking.
+4. **À quelle distance se trouve-t-il ?** Estimation de profondeur et de distance.
+5. **Comment évolue-t-il ?** Mouvement, vitesse apparente et prédiction.
+6. **Quelle est la fiabilité de ces informations ?** Fusion, incertitude et validation temporelle.
+
+Une distinction fondamentale guidera toute l'architecture : une caméra monoculaire de drone jouet ne fournit pas spontanément une mesure tridimensionnelle fiable. Nous devons donc combiner apprentissage automatique, géométrie, mouvement et calibration pour construire la meilleure estimation possible, tout en indiquant explicitement ce que le système ne sait pas déterminer.
+
+# **1. Inventaire complet des besoins de perception**
+
+Je propose de répartir ADVDS en onze domaines fonctionnels.
+
+## **ADVDS — Vision Capability Map**
+
+**01. Detection**
+
+Personnes, objets, obstacles
+
+**02. Recognition**
+
+Classes, attributs, identité de cible
+
+**03. Tracking**
+
+Identifiants et trajectoires
+
+**04. Depth & Range**
+
+Profondeur et distance
+
+**05. Motion Estimation**
+
+Flux optique et mouvement caméra
+
+**06. Segmentation**
+
+Objets, terrain, ciel, environnement
+
+**07. Human Perception**
+
+Pose, visage, mains, gestes
+
+**08. Spatial Understanding**
+
+Géométrie et structure de la scène
+
+**09. Risk Assessment**
+
+Risques et approche d'obstacles
+
+**10. Visual Localization**
+
+Position et mouvement visuels
+
+**11. Confidence & Sensor Fusion**
+
+Validation croisée, qualité, incertitude, cohérence temporelle
+
+Ces onze domaines constituent le catalogue fonctionnel. Ils ne doivent pas être exécutés tous à la même fréquence.
+
+# **2. Detection Engine — Détection des éléments visibles**
+
+[YOLO vs SAM for Geospatial Detection: Which One Actually Wins? | by Kanchan Borade | Medium](https://images.openai.com/static-rsc-4/LWN0eRYXI9WRKeqnF_ltGUriCtypJojIKu7JtCKtc9_r8xbGmd3nzjqvJFWsmHRGuq6RDDow188YWviAK0bGJEsnw2hP8ZZg5DmX1pgcUDeRNhXY-EtDhACM9GlYqs7M20RO7SrZHr_YF5ysuSbP4e-VhlsVdJqj0QYU4uI-8BI?purpose=inline)
+
+[Drones que analizan imágenes con IA de forma autónoma sin (casi) la intervención humana](https://images.openai.com/static-rsc-4/k3qwtTy_rw48ZfMscXMYEfq-fe_BTRMdVcLmr3Zt8afF1dJEJBf9k2Ppzd2qkLo1Fgw5zFfgoiSRud-grRtliwKfTUn8gU7DOtLRQf0mHgnwlxYUIZe8sxSLoT2CZw_-Y3vxtW165DtbYzrwRub7ZLN14OPGR_4jfYCQrE4DACI?purpose=inline)
+
+[Drone-Eye | A drone project that performs object detection and make a search engine out of the drone feed.](https://images.openai.com/static-rsc-4/zqY1w761TV5zdRsUkcEhtCGo8lda5VeU1TUzZc28QMK2-B-cYthKOlhOg5s7SNFLO3ZwXVLu4GQyLCQBK81_LjOwZ3_uocSNwPaH3u9eXcJjerBBvKibq5OlwE5D5Y2jGxuC7c3Zus5-o6M4Gr-Viulc8kNMqWKBfyN1OezNzMQ?purpose=inline)
+
+12
+
+La détection est la première étape : identifier les régions de l'image qui contiennent potentiellement un élément intéressant.
+
+Elle doit être indépendante de la reconnaissance précise et du tracking.
+
+## **2.1 Catégories d'objets à prendre en charge**
+
+Je propose une taxonomie personnalisable, répartie en familles.
+
+| Famille        | Classes                             |
+| -------------- | ----------------------------------- |
+| Human          | Person, pedestrian, group           |
+| Animal         | Bird, dog, cat                      |
+| Vehicle        | Car, motorcycle, bicycle            |
+| Structure      | Building, wall, fence, bridge       |
+| Vegetation     | Tree, bush, large vegetation        |
+| Infrastructure | Pole, post, streetlight             |
+| Terrain        | Road, ground, water                 |
+| Special        | Landing marker, QR, ArUco, AprilTag |
+| Unknown        | Objet non reconnu ou hors catalogue |
+
+Pour un drone jouet, on doit aussi distinguer les obstacles selon leur importance :
+
+- obstacles larges : murs, bâtiments, arbres ;
+- obstacles fins : poteaux, branches, câbles ;
+- objets mobiles : personnes, animaux, véhicules ;
+- surfaces : sol, eau, routes.
+
+Les objets fins nécessitent une attention spéciale. Un câble peut être pratiquement invisible sur une vidéo 720p compressée.
+
+## **2.2 Modèles recommandés**
+
+| Solution                  | Rôle                                              |
+| ------------------------- | ------------------------------------------------- |
+| YOLO26n                   | Détection générale                                |
+| YOLO26n personnalisé      | Détection adaptée aux drones                      |
+| ML Kit Object Detection   | Détection et tracking standard                    |
+| MediaPipe Object Detector | Détection dans son domaine de modèles compatibles |
+
+YOLO26 prend en charge plusieurs tâches, avec des variantes indépendantes pour la détection, la segmentation, la profondeur, la pose et la classification.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub+1
+
+
+
+ML Kit possède une limite fonctionnelle importante : son détecteur générique est conçu pour détecter jusqu'à cinq objets et propose des catégories générales. Il peut recevoir un classificateur personnalisé, mais ce n'est pas un remplacement direct d'un détecteur YOLO entraîné sur des dizaines de classes spécifiques.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://developers.google.com\&sz=32)
+
+Google for Developers+1
+
+
+
+**Choix ADVDS :** YOLO26n sera le détecteur principal à évaluer. ML Kit constituera un adaptateur de détection complémentaire ou de fallback pour les usages qu'il prend effectivement en charge.
+
+## **2.3 Sorties normalisées**
+
+Chaque détection devra produire :
+
+- identifiant de classe ;
+- libellé de classe ;
+- bounding box ;
+- score brut du modèle ;
+- score de confiance calibré, lorsqu'il existe ;
+- position dans l'image ;
+- dimensions ;
+- timestamp ;
+- qualité de l'image source ;
+- identité du moteur de détection.
+
+Exemple :
+
+```
+Object: PERSON
+BoundingBox: x=0.31, y=0.20, w=0.18, h=0.57
+Confidence: 0.93
+Track: 125
+Frame: 8073
+Source: YOLO26n-ONNX
+Status: TENTATIVE
+```
+
+Les coordonnées seront normalisées entre 0 et 1. Les résultats devront toujours conserver la résolution et la transformation géométrique de l'image d'origine pour que les overlays et les mesures restent cohérents.
+
+# **3. Recognition Engine — Reconnaissance et identification**
+
+La reconnaissance ne doit pas être confondue avec la détection.
+
+La détection répond à : « Il y a quelque chose ici. »
+
+La reconnaissance répond à : « De quoi s'agit-il ? », et parfois « Est-ce le même élément que celui observé auparavant ? »
+
+Je distinguerais quatre niveaux.
+
+## **3.1 Classification**
+
+Exemple : l'objet est détecté, mais son type n'est pas encore suffisamment précis.
+
+On applique alors un classificateur sur le crop correspondant.
+
+Cas d'utilisation :
+
+- arbre ou poteau ;
+- voiture ou moto ;
+- chien ou autre animal ;
+- personne ou silhouette ;
+- marqueur ou objet inconnu.
+
+Un petit classificateur MobileNet peut être suffisant pour des catégories spécialisées.
+
+## **3.2 Attribute Recognition**
+
+Reconnaître des propriétés plutôt que la classe générale :
+
+- personne debout ou assise ;
+- personne de face ou de dos ;
+- véhicule arrêté ou en mouvement ;
+- objet partiellement masqué ;
+- surface réfléchissante ;
+- cible portant une couleur distinctive.
+
+Ces propriétés peuvent provenir d'un modèle spécialisé, de landmarks ou d'algorithmes classiques.
+
+## **3.3 Target Identity**
+
+Pour le Follow-Me, il faut différencier la personne sélectionnée des autres personnes présentes.
+
+Le moteur utilisera :
+
+- Track ID ;
+- historique du déplacement ;
+- taille apparente ;
+- proportion du corps ;
+- couleur dominante des vêtements ;
+- caractéristiques d'apparence ;
+- éventuellement embeddings de ré-identification (ReID).
+
+Le visage peut servir de confirmation visuelle, mais n'est pas nécessaire au suivi initial.
+
+## **3.4 Open-Set Recognition**
+
+Fonctionnalité particulièrement intéressante.
+
+Lorsque le système rencontre un objet qui ne correspond pas correctement aux classes connues, il doit pouvoir dire :
+
+UNKNOWN OBJECT
+
+Il ne doit pas obligatoirement forcer une classification vers la classe la plus proche.
+
+Pour les obstacles, cette capacité est importante : l'absence de classe connue n'implique pas l'absence de danger.
+
+# **4. Tracking Engine — Suivi temporel des objets**
+
+[A complete overview of Object Tracking Algorithms in Computer Vision & Self-Driving Cars](https://images.openai.com/static-rsc-4/9jTJHnsUl0U-VVAGn6pGE9_DVFWesIs3fn0I-omxlx2fdwaGwM_4F-biMiixjMj3zVzXPtRft7n-pu6ZxYFhXwFcdCSR7NI2mGjf-7rZZL9x-vTBrPxB4mDtGKqp6pNjR6WsEjuogInegsAQs96YQ3llmomKl4DpSZ2jWnfrE3Y?purpose=inline)
+
+[thinkautonomous.ai](https://www.thinkautonomous.ai/blog/object-tracking/?utm_source=chatgpt.com)
+
+Le tracking transforme une succession de détections indépendantes en objets persistants.
+
+C'est le composant qui permet de dire :
+
+« Cette personne que je vois maintenant est probablement celle que j'ai détectée il y a deux secondes. »
+
+## **4.1 Les types de suivi**
+
+| Tracking               | Utilisation                           |
+| ---------------------- | ------------------------------------- |
+| Single Object Tracking | Suivi d'une cible précise             |
+| Multi-Object Tracking  | Suivi simultané de plusieurs objets   |
+| Human Tracking         | Suivi de personnes                    |
+| Pose Tracking          | Suivi des points corporels            |
+| Feature Tracking       | Suivi des points visuels              |
+| Marker Tracking        | Suivi QR / ArUco / AprilTag           |
+| Re-Identification      | Retrouver une cible après disparition |
+
+## **4.2 Algorithmes**
+
+Je propose le catalogue suivant :
+
+- SORT : base simple pour la gestion de pistes ;
+- ByteTrack : association de détections avec scores de confiance différents ;
+- Kalman Filter : prédiction et filtrage des positions ;
+- Lucas-Kanade : continuité géométrique des points ;
+- IoU : comparaison des bounding boxes ;
+- ReID : récupération d'identité après occlusion, optionnelle.
+
+Il ne faut pas confondre tracking ID du modèle et identité ADVDS. Nous aurons nos propres identifiants persistants.
+
+## **4.3 Cycle de vie d'une piste**
+
+```
+NEW
+  |
+  v
+TENTATIVE
+  |
+  +---- confirmation temporelle ----> CONFIRMED
+  |                                     |
+  |                                     v
+  |                                  TRACKING
+  |                                     |
+  |                                     +--> OCCLUDED
+  |                                     |
+  |                                     +--> UNCERTAIN
+  |                                     |
+  |                                     +--> REIDENTIFIED
+  |                                     |
+  +--> REJECTED                         +--> LOST
+```
+
+Une piste pourra survivre à quelques images sans détection, grâce à une prédiction Kalman et au suivi géométrique.
+
+Toutefois, sa covariance devra augmenter lorsque les observations disparaissent. On ne doit jamais continuer à la traiter comme une cible parfaitement localisée.
+
+## **4.4 Détecter moins souvent, suivre plus souvent**
+
+Sur le Snapdragon 845, je recommande :
+
+- détecteur YOLO périodique ;
+- tracker géométrique sur les images intermédiaires ;
+- correction des trajectoires lors des nouvelles détections ;
+- réinitialisation lorsque le suivi devient trop incertain.
+
+C'est une manière efficace de réduire la charge IA tout en conservant une bonne continuité visuelle.
+
+# **5. Depth & Range Engine — Estimation de profondeur et de distance**
+
+C'est l'un des composants les plus importants, mais aussi l'un des plus délicats dans notre configuration.
+
+Notre drone possède une seule caméra, sans stéréo ni capteur ToF. Nous devons donc distinguer plusieurs types d'estimation qui ne répondent pas exactement aux mêmes questions.
+
+## **5.1 Les quatre niveaux de mesure**
+
+Niveau 1
+
+**Relative Depth**
+
+Déterminer ce qui semble proche ou éloigné dans la scène, sans nécessairement connaître les mètres.
+
+[Monocular Absolute Depth Estimation from Motion for Small Unmanned Aerial Vehicles by Geometry-Based Scale Recovery](https://images.openai.com/static-rsc-4/mgbZXxNbmTMN8kYK2BFbm9ZxeidQP0bjFZuHY0ELuE8khVHZefpPKm_54mTbHgzFacL5qjU-aR1QBXN3wwPebkBd5EjSAp-An8cx_VOKu15FUE0ZafdeT75gVWrR02Al8cqNeJLg_9haDTVh3tF98xS5u5zMZOcnUw4hlFoySak?purpose=inline)
+
+[mdpi.com](https://www.mdpi.com/1424-8220/24/14/4541?utm_source=chatgpt.com)
+
+Niveau 2
+
+**Metric Depth**
+
+Estimer une distance métrique, par exemple 2,5 mètres, sous réserve d'une calibration adaptée et d'une précision validée.
+
+[Fabio Tosi, PhD](https://images.openai.com/static-rsc-4/j_ZBTt39nq_mOIxvGMBYY2ODQlqWprSTWmeZQ6If8a1D9GyB-nXqwP4IIreplcjG7hCxJMEOgcN8T6x47A6qBHjo2_vJ_ZOPpYhrhUHvH7E-vwegQbRu0hr1C17O6n7M7rb3R_Y_mMpm3sa9YZ5MhQRV2-0GsG2lloMa7IPAe80?purpose=inline)
+
+[fabiotosi92.github.io](https://fabiotosi92.github.io/?utm_source=chatgpt.com)
+
+Niveau 3
+
+**Object Distance**
+
+Estimer la distance caméra-objet à partir de sa profondeur, de ses dimensions apparentes ou d'une géométrie connue.
+
+[AI 자율주행과정 수강생들의 발표 - 딥러닝을 이용한 자율주행 로봇](https://images.openai.com/static-rsc-4/9Iw4YtqAIBDys8sh7mXELDAjKCBBVgis5yZGk777Y3ju8nLRpdaHAPBWWXj76S4eFeQl48tg3_dBGblROgoru3XU1hCtRoRmN8LF8MNXJRIeGDPHhIIUIqf8f_r1NmkAA6czeQ2L0PEq8nCEq8MYv1haihHZ8Tjh7O70vseFIIE?purpose=inline)
+
+[pinkwink.kr](https://pinkwink.kr/1465?utm_source=chatgpt.com)
+
+Niveau 4
+
+**Time-to-Contact**
+
+Estimer combien de temps il pourrait rester avant une collision ou un rapprochement dangereux, sous certaines hypothèses de mouvement.
+
+[Time-to-Contact. Black Clouds and Diving Gannets | by Ronald Boothe | ILLUMINATION | Medium](https://images.openai.com/static-rsc-4/VrpUkMXW8XXMOH-RK2zljFs7aWBRB8NrRNxMmSmqJoURow_YpOE4gh5-i-_uMFy_0CytjD7tvkhYX8hMQRKVzGzh_Xrt9i_tNcZLQtf5UR36t0Y3JwjUuNcC0zi96sH6IXKAh1lDuVmGS8laTVwv19szm6MeJRBUeIS5fMRK--I?purpose=inline)
+
+[medium.com](https://medium.com/illumination/time-to-contact-bbc177fd2bbb?utm_source=chatgpt.com)
+
+Il faut éviter de mélanger ces résultats. Une carte de profondeur relative ne doit jamais être présentée comme un télémètre métrique.
+
+## **5.2 Méthode A — Monocular Depth Estimation avec YOLO26**
+
+[Depth Pro Explained: Sharp, Fast Monocular Metric Depth Estimation](https://images.openai.com/static-rsc-4/M52ebFW3a3cBvpAsfBQN9NVqNA7_LxWa_t_fSW2niiIglip_Mx3L_t8fAhWuAyLg6IjUO33C7b3bT_MzrIf4aI3mqkeOF_HhDdV--pAX_m0cFXCzyZ9ShNmKlquvDSaogTFeAyaMwGdq-vuBre7gM82Q9hqpNrHlUDth55_JNQ0?purpose=inline)
+
+**YOLO26n-depth**
+
+À expérimenter
+
+Estimation dense de profondeur à partir d'une image RGB.
+
+Sortie : carte de profondeur alignée sur l'image.
+
+[Documentation Depth](https://docs.ultralytics.com/tasks/depth/?utm_source=chatgpt.com)
+
+YOLO26 possède effectivement une tête spécialisée pour la profondeur monoculaire.
+
+Elle produit une carte dense dont les valeurs représentent des estimations de distance en mètres. Le modèle sépare la structure de la scène de son échelle absolue et possède une calibration globale pouvant être adaptée à des données de référence.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://docs.ultralytics.com\&sz=32)
+
+Ultralytics Docs+1
+
+
+
+Cependant, il y a une contrainte importante pour notre téléphone.
+
+Le modèle YOLO26n-depth possède environ 6,3 millions de paramètres et 46,9 milliards de FLOPs à sa résolution documentée de 768 pixels. Sa référence ONNX CPU est de 272 ms, sur un environnement de benchmark qui n'est pas celui du Galaxy S9.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://docs.ultralytics.com\&sz=32)
+
+Ultralytics Docs
+
+
+
+Je ne le mettrais donc pas dans le chemin critique de chaque image du S9.
+
+Je recommande plutôt :
+
+- analyse ponctuelle à basse fréquence ;
+- traitement de régions d'intérêt lorsque c'est possible ;
+- comparaison FP16 et INT8 ;
+- cache de la dernière carte exploitable ;
+- mesure de la dérive de profondeur entre images ;
+- fallback géométrique lorsqu'une carte n'est pas disponible.
+
+Il faudra également vérifier les exigences d'entrée du modèle lors de son export. Les poids YOLO26-depth officiels sont notamment entraînés avec une entrée de 768 pixels et un redimensionnement particulier. Une réduction arbitraire peut affecter fortement les résultats.
+
+## **5.3 Méthode B — Distance à partir de la taille apparente**
+
+C'est une approche classique, légère et intéressante pour le Follow-Me.
+
+Lorsqu'on connaît la taille réelle d'un objet, sa projection sur l'image donne une estimation de sa distance.
+
+\\[ Z \approx \frac{f \times H}{h} \\]
+
+Avec :
+
+- \\(Z\\) : distance approximative caméra-objet ;
+- \\(f\\) : focale exprimée en pixels ;
+- \\(H\\) : dimension réelle connue ;
+- \\(h\\) : dimension apparente mesurée en pixels.
+
+[Introduction and the Pinhole camera — Notes @ The Essential AI](https://images.openai.com/static-rsc-4/L-lpNsqHYE8CFJpGXreNB5A8DlI16N2HtjFkWAFXyeMh3jWzOqwQnRkoiub3MgiwrGbnDNCp9xAaEv-UD4rzyhNTND8Bl-CrhWG4FxSEqrt2KsXw9dpwEwYIh1Jv_32dM9Sb6MSMoxPiaHune3dlNEZnyUxSmMbmrbGBF-GSja0?purpose=inline)
+
+[ai-explained.github.io](https://ai-explained.github.io/notes/cvip/pinhole.html?utm_source=chatgpt.com)
+
+Exemple :
+
+Un marqueur carré de 20 cm est filmé avec une caméra dont la focale calibrée vaut 500 pixels. Le marqueur mesure 50 pixels de hauteur dans l'image.
+
+\\[ Z=\frac{500\times0.20}{50}=2\text{ m} \\]
+
+Cette méthode est particulièrement utile pour :
+
+- marqueurs de dimensions connues ;
+- objets standardisés ;
+- cibles de calibration ;
+- personnes si une taille approximative a été fournie ou estimée.
+
+Pour une personne inconnue, la taille physique réelle est incertaine. Cette méthode ne doit donc pas être utilisée comme un télémètre fiable sans calibration et estimation de taille individuelle.
+
+## **5.4 Méthode C — Camera Calibration**
+
+Avant toute estimation métrique, il faudra calibrer la caméra du drone.
+
+Je développerais un `CameraCalibrationEngine` basé sur OpenCV.
+
+Il devra mesurer :
+
+- focale horizontale \\(f_x\\) ;
+- focale verticale \\(f_y\\) ;
+- centre optique \\(c_x,c_y\\) ;
+- distorsion radiale ;
+- distorsion tangentielle ;
+- champ de vision horizontal et vertical.
+
+La matrice intrinsèque sera :
+
+\\[ K= \begin{bmatrix} f_x&0&c_x\\\ 0&f_y&c_y\\\ 0&0&1 \end{bmatrix} \\]
+
+Les paramètres sont utilisés dans le modèle sténopé d'OpenCV et sont indispensables pour les calculs géométriques cohérents.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://legacy-docs.opencv.org\&sz=32)
+
+legacy-docs.opencv.org
+
+
+
+Je recommande un processus de calibration à l'aide d'un damier ou d'une charuco board, à différentes positions et orientations.
+
+Attention : les paramètres devront être recalculés si la résolution, le crop ou le mode de la caméra modifie la projection. Il faudra également savoir si le drone applique déjà une correction de distorsion.
+
+### **Profil caméra à sauvegarder**
+
+```
+data class CameraCalibration(
+    val cameraProfileId: String,
+    val width: Int,
+    val height: Int,
+    val fx: Float,
+    val fy: Float,
+    val cx: Float,
+    val cy: Float,
+    val distortion: List<Float>,
+    val horizontalFovDegrees: Float,
+    val verticalFovDegrees: Float,
+    val calibratedAt: Long,
+    val reprojectionError: Float
+)
+```
+
+## **5.5 Méthode D — ArUco et AprilTag : distance métrique beaucoup plus contrôlable**
+
+[Draw Axis Aruco at Catharine Blanco blog](https://images.openai.com/static-rsc-4/p4e2qMyPBzmtT9irpQr8eohVnGPMhrhdOe8T2AKiXlP3dQQy_rj9_c_nL9W06L4Ob4EOpgJCj5gH2iQJGU_u75W9GxGXhph2sXoJkQR40HAbPa410_6mPRdHlV9YVcS0fygsbD7alEksWMu7-sj3CasxFJjTfgbcx7xt5iRHAew?purpose=inline)
+
+[AprilTag Explained: Detection, PnP Pose & Hand-Eye Calibration](https://images.openai.com/static-rsc-4/q7vXgf99nGjgG9CwHgiMH47eJ4a-fPRkxJgvz9Lhr6f-SELNe5tILy7Tfz34XTeQYM_w7JsX3oY1KmbQoyIF-vdVaqGG7lWjhNp7rsE_5m8NO1XRqwCHaFfxgfV2BlQPfBIk-E7advAHOws7RGQKlr0ZkcAeHM8DvRD3Bhzv1dI?purpose=inline)
+
+[Frontiers | A robot localization proposal for the RobotAtFactory 4.0: A novel robotics competition within the Industry 4.0 concept](https://images.openai.com/static-rsc-4/8uVB-qlHqan4_ArHxmfD8JSHblg90BFPEm5xM9l21cpATDnyR04wvvai8xrMt3mDFn2cqlrlxgC3DYzFgJD-ymAgEv0SIp6L-HznX7YQ71ICriKh_JZkCFjvTc-T8xvDySkcTVn-fw1oSmt7oNAXKRPX95AXqiQWtFvsMAI6UFo?purpose=inline)
+
+11
+
+C'est l'une des meilleures méthodes à implémenter pour les expériences de précision.
+
+Le principe :
+
+1. Le marqueur possède une dimension physique connue.
+2. La caméra est calibrée.
+3. Les quatre coins du marqueur sont détectés.
+4. Une estimation de pose est calculée.
+5. Le système récupère la translation relative caméra-marqueur.
+
+On peut utiliser `solvePnP` et les modules ArUco d'OpenCV.
+
+Cela nous permettra notamment de développer un système d'atterrissage assisté avec marqueur.
+
+La précision dépendra de la taille apparente, de la résolution, de la calibration et de l'angle d'observation. La solution doit donc aussi produire une estimation d'incertitude.
+
+## **5.6 Méthode E — Optical Flow et Time-to-Contact**
+
+Celle-ci ne donne pas directement une distance, mais elle est extrêmement utile pour apprécier le mouvement relatif.
+
+Considérons un objet qui grossit dans l'image au fur et à mesure que la caméra s'en approche.
+
+Sous une approximation de mouvement de rapprochement frontal :
+
+\\[ \tau \approx \frac{s}{\dot{s}} \\]
+
+Où :
+
+- \\(s\\) : taille apparente de l'objet ;
+- \\(\dot{s}\\) : variation temporelle de sa taille ;
+- \\(\tau\\) : temps de contact approximatif.
+
+Cette approche est basée sur la notion de *visual looming*.
+
+Elle présente un intérêt même lorsque l'objet n'est pas classifié correctement, car elle repose sur son évolution visuelle.
+
+Cependant, elle doit distinguer l'expansion causée par le déplacement de la caméra du changement apparent lié à sa rotation ou au mouvement propre de l'objet.
+
+Elle fournira donc une estimation conditionnelle, jamais une garantie de collision.
+
+## **5.7 Méthode F — Monocular Visual Odometry**
+
+[GitHub - SpectacularAI/HybVIO: HybVIO visual-inertial odometry and SLAM system · GitHub](https://images.openai.com/static-rsc-4/NZYeIvpUWdacS1WQ70nU8BN0e8WfSk_HM4HluaI9vQBsIEfGbTJRNfuK9Kss8eWryKdAPsvayC4TrYKsvBY7_oSSfpspz4y3Lm7JwH5Tgghs5XnIwR64wGuXog2K2VOViEye1ykXisAzKc6REvEUGWzv8XSP3ugd5zzbLy4PJ68?purpose=inline)
+
+[github.com](https://github.com/SpectacularAI/HybVIO?utm_source=chatgpt.com)
+
+C'est la prochaine étape vers une compréhension spatiale plus avancée.
+
+Elle doit estimer le mouvement de la caméra en exploitant les images successives :
+
+- extraction des caractéristiques ;
+- suivi des points ;
+- estimation de la rotation ;
+- estimation de la translation ;
+- triangulation lorsque la géométrie le permet ;
+- reconstruction d'une trajectoire visuelle.
+
+Mais une caméra monoculaire seule ne permet généralement pas de déterminer l'échelle métrique absolue du déplacement : le problème de l'échelle et sa dérive sont des difficultés classiques de l'odométrie monoculaire.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://www.mdpi.com\&sz=32)
+
+MDPI+1
+
+
+
+Pour le drone jouet, je classerais cette fonctionnalité en recherche expérimentale et non en fondation de sécurité.
+
+**Attention à l'IMU du téléphone :** puisque le téléphone est tenu par le pilote, son accéléromètre et son gyroscope décrivent les mouvements du téléphone, pas ceux du drone. Ils ne doivent pas être considérés comme une IMU du véhicule. Seule une télémétrie réellement fournie par le drone pourrait servir à une fusion de ce type, après vérification de sa synchronisation et de sa qualité.
+
+## **5.8 Le résultat final du Depth Engine**
+
+Je ne retournerais jamais une simple distance.
+
+Le moteur doit retourner une mesure et sa provenance.
+
+```
+data class DistanceEstimate(
+    val rangeMeters: Float?,
+    val relativeDepth: Float?,
+    val method: DistanceMethod,
+    val uncertaintyMeters: Float?,
+    val confidence: Float,
+    val sourceFrameSequence: Long,
+    val calibrationId: String?,
+    val timestampNs: Long,
+    val status: EstimateStatus
+)
+```
+
+Les valeurs `rangeMeters` et `relativeDepth` sont séparées pour éviter qu'une estimation relative soit interprétée comme une distance métrique.
+
+Les méthodes pourront être :
+
+```
+MONOCULAR_DEPTH
+KNOWN_OBJECT_SIZE
+ARUCO_PNP
+APRILTAG_PNP
+GROUND_PLANE
+OPTICAL_FLOW_TTC
+VISUAL_ODOMETRY
+UNKNOWN
+```
+
+# **6. Motion Intelligence Engine — Compréhension du mouvement**
+
+La vidéo doit être traitée comme une séquence temporelle, pas comme une suite d'images indépendantes.
+
+[Optik Akış (Optical Flow) ile nesne takibi | by Burak Özdemir | Medium](https://images.openai.com/static-rsc-4/thrKx4LJMoTvodpAEtCHXFfZ3FzIH5aR_mPu8lQgcHNfFAUXUxDxz2sB6lEXer4Q05TOXINI9j3C0cRntHKTWgB0qwxPgxgx9-cZCiMCETlPK38-8ky41Y4b8Ag20zlRpq01dwjtg4wEgPnDMyavw_TZ1B5PnOgyA6k1lh3klWM?purpose=inline)
+
+[Optical Flow - Learning OpenCV \[Book\]](https://images.openai.com/static-rsc-4/loE44rV696uXFPFGT7pd4rbEytZOtXDoumQ1rguivd1ueJ9avvtrQxGcd_GJume0ehcI1exd7-tAQ3EZNgstJ1LB75F6adMWbEExla5uUY6_UVkRaRDqhoUWuHrO_lRJ1Uv5hsAmU8j8G7cZfTGNpwG59XDMEHLXNkQN4jcnX4w?purpose=inline)
+
+[Visualizing Reality: How 2D Motion Flow Translates into 3D Models | by Kenneth | Medium](https://images.openai.com/static-rsc-4/hArDSJ1ndnbR_jVxtbWM8hbxN6CKeIE7ZOvepBL9iXL9NQJ494btZlUy0EiEIvI-5kjtD8AmkBQuoJAVig-a91YYrJDIjqACOb-tyWO4bV3UdKfhJVcmGAM0hkEqU4_lHja0TLFcvuiFsTB3QdSoHr5nJVb7N_J-p5u83Q11Qdg?purpose=inline)
+
+10
+
+Je séparerais ce domaine en cinq traitements.
+
+| Module                   | Fonction                                 |
+| ------------------------ | ---------------------------------------- |
+| Sparse Optical Flow      | Suivre les points caractéristiques       |
+| Dense Optical Flow       | Obtenir le champ de déplacement local    |
+| Camera Motion Estimation | Estimer le mouvement global de la caméra |
+| Object Motion Estimation | Isoler le mouvement local des objets     |
+| Trajectory Prediction    | Prédire leur position future             |
+
+### **Algorithmes principaux**
+
+**OpenCV :**
+
+- Shi-Tomasi ;
+- Lucas-Kanade pyramidal ;
+- Farneback, si le matériel le permet ;
+- RANSAC ;
+- Homography estimation.
+
+La fonction `calcOpticalFlowPyrLK()` d'OpenCV fournit une méthode de suivi de points sparse par Lucas-Kanade pyramidal.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://legacy-docs.opencv.org\&sz=32)
+
+legacy-docs.opencv.org
+
+
+
+### **Séparation du mouvement global et local**
+
+Exemple : le drone pivote vers la droite, alors que la personne suivie reste immobile.
+
+Dans l'image, cette personne va se déplacer vers la gauche.
+
+Sans compensation du mouvement de la caméra, notre système pourrait croire que la personne se déplace réellement.
+
+Nous devons donc :
+
+1. Suivre des points répartis dans la scène.
+2. Estimer le mouvement dominant.
+3. Rejeter les points aberrants par RANSAC.
+4. Estimer le mouvement global.
+5. Calculer le mouvement résiduel local.
+6. Alimenter le tracker avec le mouvement corrigé.
+
+Cette distinction sera essentielle pour le Follow-Me.
+
+# **7. Segmentation et compréhension de la scène**
+
+La détection indique qu'un objet est présent. La segmentation décrit les régions de l'image qu'il occupe.
+
+Je recommande trois moteurs complémentaires.
+
+## **7.1 Instance Segmentation**
+
+[30分钟吃掉YOLOv8实例分割范例-腾讯云开发者社区-腾讯云](https://images.openai.com/static-rsc-4/Sg6ey_lpJRz2ep8pRgl1KXGCsPAGisLiljJz8q_sqiOfNFws2RO9TvirMC57OC2E5BOLT_Z_Flqu_YK5_6BIe6QFKFkVnRVM1gVMxmVtRAPA35FAM4QNzxOEKzy79ArUmA3tVpIeQUvpnavLkeDuEVzAmIMK09E807Va_1tLxDo?purpose=inline)
+
+[cloud.tencent.com](https://cloud.tencent.com/developer/article/2329787?utm_source=chatgpt.com)
+
+Chaque objet possède son propre masque.
+
+Exemple :
+
+```
+Person A  -> Mask 1
+Person B  -> Mask 2
+Tree      -> Mask 3
+Vehicle   -> Mask 4
+```
+
+Modèle candidat : YOLO26n-seg.
+
+Utilité :
+
+- localisation plus précise des objets ;
+- mesure de surface apparente ;
+- séparation des objets qui se chevauchent ;
+- meilleur suivi des contours.
+
+## **7.2 Semantic Segmentation**
+
+[Identification of Inequities in Green Visibility and Ways to Increase Greenery in Neighborhoods: A Case Study of Wuhan, China](https://images.openai.com/static-rsc-4/gtgKmxlgBeymuHDpTlUQVRqEC3CvZOl5mfZbsYtB_IwZrlGHUYQpjN6TBw2mZLIcw9n3buFg6Z2NxDEViH_afo7hSjTpgLlYGPWVmngzix9g3kTd6O6hM6ybB9Ifxadxe9k2j2ZDfF86jkUwbEEgF8Zwgc-6msFiVUrnqAiCjt8?purpose=inline)
+
+[mdpi.com](https://www.mdpi.com/2076-3417/15/2/742?utm_source=chatgpt.com)
+
+Tous les pixels sont classifiés par classe :
+
+```
+SKY
+GROUND
+VEGETATION
+BUILDING
+ROAD
+WATER
+PERSON
+VEHICLE
+UNKNOWN
+```
+
+Modèle candidat : YOLO26n-sem ou un MobileNet spécialisé exporté vers ONNX/LiteRT.
+
+Cette segmentation pourra aider à identifier les régions de terrain et les structures présentes dans le champ visuel.
+
+## **7.3 Human Segmentation**
+
+Un moteur plus léger pour extraire les silhouettes humaines.
+
+MediaPipe Selfie Segmentation ou un modèle personnalisé pourront être évalués.
+
+Il faut cependant garder à l'esprit que l'extraction de silhouettes humaines ne constitue pas une segmentation de tous les obstacles.
+
+# **8. Human Perception — Perception humaine spécialisée**
+
+Pour un drone qui doit suivre une personne, reconnaître des gestes et conserver une cible, un détecteur générique ne suffit pas.
+
+Je développerais un `HumanPerceptionEngine` composé de cinq sous-systèmes.
+
+[Automated Gait Analysis Based on a Marker-Free Pose Estimation Model | MDPI](https://images.openai.com/static-rsc-4/btMdFY-znXIBtwUzqyEPgD1cs2UnQxajs2S2hrUxKim3D8HgInaHoWbOb23LODfozfbgbnJAPeRtmSiAdGFVqJVxwX6ji4JVR7j66l09cpt5bVUGP23JGcU68IxWcQPdRrWmipJRjag5CgRVxe5b8e9PoLPV2BURQZ8tJvBfHzc?purpose=inline)
+
+[Full list of available hand gestures. From the output of Mediapipe... | Download Scientific Diagram](https://images.openai.com/static-rsc-4/enYqSoGhUt55edISuHjV18rXoqaRmESxJ0lH3rEsVGXvbRThcqH9Mhzgs5eYZ721W6DUI567Ix0OUQAEmRUu66PQhcXzg4GQgCL1C_1Jqe-9zpczjdNWFrglV8mlhF-5UoHmVPboXRtgBcd4BusPgGhauOf3u87aBChdwaU9XU8?purpose=inline)
+
+[people-segmentation · PyPI](https://images.openai.com/static-rsc-4/2OiFTCoU3RQ_QhoqxzrQxXh1HG-nsFOl7PNIfTgCtrtqa-H8wGB0A4_9f60uVo72Y7Vh3TEc3sbZ7OA6N9ySOwu38rRPbF7KYxGmIlHWpeN3lsh-xf_9MSmp7XrWUZb4lk3peKIM8XbUePmgvZSNtlfNsdMkDZ-YiF1wkL7t62g?purpose=inline)
+
+5
+
+| Sous-système        | Responsabilité                          |
+| ------------------- | --------------------------------------- |
+| Person Detection    | Détecter les personnes                  |
+| Pose Estimation     | Estimer les articulations et la posture |
+| Human Segmentation  | Extraire la silhouette                  |
+| Gesture Recognition | Comprendre les gestes                   |
+| Person ReID         | Retrouver une cible déjà observée       |
+
+### **8.1 Pose estimation**
+
+**Technologie principale : MediaPipe Pose Landmarker.**
+
+Il fournit notamment 33 landmarks corporels et des coordonnées normalisées ainsi que des coordonnées 3D relatives au modèle de pose. Ces dernières ne doivent pas être interprétées comme une reconstruction métrique de la personne dans l'espace du drone.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://developers.google.com\&sz=32)
+
+Google for Developers+1
+
+
+
+Utilisations :
+
+- position du bassin ;
+- orientation des épaules ;
+- position de la tête ;
+- posture générale ;
+- mouvement des bras ;
+- orientation approximative du corps ;
+- qualité et visibilité des articulations.
+
+### **8.2 Gesture recognition**
+
+Je construirais une machine de reconnaissance de gestes basée sur la séquence de landmarks, plutôt que sur une seule image.
+
+Exemples :
+
+| Geste           | Action proposée                      |
+| --------------- | ------------------------------------ |
+| Paume ouverte   | Demande d'arrêt du suivi             |
+| Bras levé       | Demande de verrouillage              |
+| Bras pointé     | Sélection directionnelle à confirmer |
+| Deux bras levés | Commande personnalisée               |
+| Pouce levé      | Confirmation                         |
+
+Les gestes devront être confirmés dans plusieurs observations consécutives. Une posture momentanée ne doit pas déclencher une action irréversible.
+
+### **8.3 Person Re-Identification**
+
+Ce moteur pourra aider à retrouver une personne après une occultation.
+
+Il utilisera une signature visuelle calculée à partir du crop humain :
+
+- couleurs dominantes ;
+- proportions ;
+- représentation visuelle compacte (embedding) ;
+- historique spatial ;
+- pose précédente.
+
+Je n'en ferais pas un mécanisme d'identification personnelle. Il s'agit de conserver une identité de suivi temporaire au cours d'une session de vol.
+
+### **8.4 Face Detection**
+
+ML Kit Face Detection pourra servir à détecter et localiser un visage, éventuellement avec des landmarks et un tracking ID.
+
+Mais détecter un visage ne permet pas de connaître l'identité de la personne. Il ne faudra donc pas confondre face detection et face recognition.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://developers.google.com\&sz=32)
+
+Google for Developers
+
+
+
+# **9. Spatial Understanding Engine — Compréhension spatiale de l'environnement**
+
+Ici, le système commence à aller au-delà des objets individuellement détectés.
+
+Il doit constituer une représentation simplifiée de la scène.
+
+## **9.1 Scene Geometry**
+
+Informations à extraire :
+
+- ligne d'horizon ;
+- point de fuite ;
+- lignes dominantes ;
+- orientation apparente du terrain ;
+- limites de surfaces ;
+- régions proches et éloignées ;
+- objets et surfaces en mouvement ;
+- géométrie approximative des plans visibles.
+
+## **9.2 Local Spatial Map**
+
+Je propose une carte locale temporaire, centrée sur le champ visuel de la caméra.
+
+Elle contiendra :
+
+| Donnée           | Information                                  |
+| ---------------- | -------------------------------------------- |
+| Object locations | Localisation des objets                      |
+| Relative depth   | Profondeur relative                          |
+| Metric range     | Distance métrique lorsqu'elle est disponible |
+| Motion vectors   | Mouvement apparent                           |
+| Semantic class   | Type de région                               |
+| Risk level       | Niveau de risque estimé                      |
+| Uncertainty      | Incertitude                                  |
+
+On peut représenter cette carte comme une grille de cellules comportant un état et une confiance.
+
+[Velocity Estimation and Cost Map Generation for Dynamic Obstacle Avoidance of ROS Based AMR](https://images.openai.com/static-rsc-4/JA7Os_y-KsjJ7pKGdFPgstm1biTtMIBzCzsry9qoKM8JbzQuguT47c9ERdXn9rPgVjCQAxJVmVqsRs9OtadQrahFLhqCzlDDRobQ2Xf0QzO5FvLcPZb8ZCUnVCA7THIN-phALUQYQeE9y1jD6j4FSTL7rCWD5IuSrOKHvjQ2pQ8?purpose=inline)
+
+[mdpi.com](https://www.mdpi.com/2075-1702/10/7/501?utm_source=chatgpt.com)
+
+Cependant, elle ne sera pas une carte 3D complète de l'environnement.
+
+Avec une seule caméra frontale, nous ne connaissons pas ce qui se trouve derrière le drone, sous lui ou hors de son champ de vision. La carte devra donc utiliser un état `UNKNOWN` pour les zones qui n'ont pas été observées.
+
+## **9.3 Visual Localization**
+
+Ce moteur estimera les changements de position et d'orientation de la caméra entre images.
+
+Les candidats expérimentaux sont :
+
+- Feature-based Visual Odometry ;
+- Homography-based Motion Estimation ;
+- Essential Matrix Estimation ;
+- Feature Matching ;
+- Sparse Triangulation ;
+- Monocular SLAM.
+
+La priorité doit rester l'estimation du mouvement de la caméra, pas la création prématurée d'une grande carte 3D.
+
+Un système monoculaire peut reconstruire une trajectoire relative, mais son échelle peut dériver sans information supplémentaire. C'est une limitation classique des systèmes de localisation visuelle monoculaires.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://www.mdpi.com\&sz=32)
+
+MDPI+1
+
+
+
+# **10. Risk Assessment Engine — Évaluation des risques**
+
+Ce moteur ne doit pas être un simple détecteur d'obstacles.
+
+Il doit combiner plusieurs informations pour évaluer une situation.
+
+### **10.1 Paramètres analysés**
+
+- Distance estimée ;
+- incertitude sur la distance ;
+- mouvement relatif ;
+- taille apparente ;
+- expansion de la cible ;
+- time-to-contact ;
+- trajectoire apparente ;
+- catégorie de l'objet ;
+- qualité de l'image ;
+- âge de l'image ;
+- état de tracking.
+
+### **10.2 Classification du risque**
+
+LOW
+
+**Situation peu préoccupante**
+
+Objet éloigné, mouvement non convergent ou faible expansion apparente.
+
+MODERATE
+
+**Surveillance renforcée**
+
+Objet potentiellement proche ou évolution du mouvement nécessitant une vérification.
+
+HIGH
+
+**Risque important**
+
+Mouvement de rapprochement cohérent, estimation de risque élevée.
+
+UNKNOWN
+
+**Information insuffisante**
+
+Image trop vieille, estimation contradictoire, occlusion ou obstacle non caractérisé.
+
+Il est important de ne pas considérer `UNKNOWN` comme `LOW`.
+
+### **10.3 Risk Score**
+
+Une première formule expérimentale pourrait être :
+
+\\[ R=w_dD+w_tT+w_mM+w_qQ+w_uU \\]
+
+Avec :
+
+- \\(D\\) : indicateur de proximité ;
+- \\(T\\) : danger lié au temps de contact ;
+- \\(M\\) : cohérence du mouvement ;
+- \\(Q\\) : qualité de l'observation ;
+- \\(U\\) : incertitude.
+
+Les poids devront être calibrés expérimentalement. Cette formule n'est pas un modèle de collision validé et ne doit pas commander seule un changement de trajectoire.
+
+### **10.4 Mode d'utilisation dans ADVDS**
+
+Dans la version assistance visuelle :
+
+- avertissement visuel ;
+- indicateur de risque ;
+- encadrement des obstacles ;
+- flèche indiquant leur déplacement apparent ;
+- alerte de perte de perception.
+
+Dans le mode expérimental :
+
+- calcul de trajectoires hypothétiques ;
+- comparaison du risque entre différentes actions ;
+- génération de suggestions ;
+- validation obligatoire par le superviseur.
+
+Le système ne prétendra pas éviter un obstacle qui se trouve hors champ.
+
+# **11. Camera Intelligence & Calibration**
+
+Tous les moteurs doivent partager un même profil caméra.
+
+C'est une condition importante pour obtenir des résultats cohérents entre la détection, la profondeur, le suivi et la géométrie.
+
+Je développerais un `CameraProfileManager` qui conserve :
+
+```
+CameraProfile
+ ├── Camera ID
+ ├── Resolution
+ ├── Aspect Ratio
+ ├── Intrinsic Matrix
+ ├── Lens Distortion
+ ├── Horizontal FOV
+ ├── Vertical FOV
+ ├── Rotation
+ ├── Mirroring
+ ├── Crop Parameters
+ ├── Color Profile
+ ├── Camera-to-Drone Transform
+ └── Calibration Version
+```
+
+Il devra également gérer la qualité de la vidéo :
+
+- blur ;
+- exposition ;
+- compression ;
+- saturation ;
+- bruit ;
+- freeze ;
+- changement brutal de luminosité.
+
+Le point important est de garder les transformations d'image traçables.
+
+Par exemple, si YOLO reçoit une image de 416 × 416 issue d'un letterbox de la vidéo originale de 1280 × 720, le système doit être capable de ramener exactement les bounding boxes dans les coordonnées de la vidéo originale.
+
+Sans cela, les distances et les overlays peuvent être faux même lorsque le détecteur fonctionne parfaitement.
+
+# **12. Ordonnancement global des traitements**
+
+Tous les moteurs ne doivent pas être exécutés à la même fréquence.
+
+Pour le Snapdragon 845, je recommande une organisation en quatre voies.
+
+**FAST PERCEPTION PATH**
+
+Continu
+
+Chaque image fraîche et exploitable
+
+Frame Quality · Sparse Optical Flow · Track Update · Scene Change · Timestamp Validation
+
+**AI DETECTION PATH**
+
+Périodique
+
+Déclenchement planifié et adaptatif
+
+YOLO Object Detection · Pose · Face · Gesture
+
+**SPATIAL PATH**
+
+Faible fréquence
+
+Traitements plus coûteux ou déclenchés par événement
+
+Depth Map · Segmentation · Camera Motion · Ground Geometry · Scene Map
+
+**SPECIALIZED PATH**
+
+Sur demande
+
+Marker Detection · ReID · OCR · Detailed Classification · Calibration
+
+Une première politique de planification pourrait ressembler à ceci :
+
+| Moteur           | Fréquence de départ sur S9 |
+| ---------------- | -------------------------- |
+| Frame Quality    | Chaque image               |
+| Optical Flow     | 10–20 FPS                  |
+| Tracking         | Chaque image exploitable   |
+| YOLO26n          | 3–6 FPS                    |
+| Pose Lite        | 5–10 FPS                   |
+| Segmentation     | 1–2 FPS                    |
+| Depth Estimation | 1–2 FPS à tester           |
+| ReID             | À la demande               |
+| Marker Detection | Selon le mode actif        |
+
+Ces chiffres sont des objectifs expérimentaux, pas des fréquences garanties. YOLO26n-depth devra notamment être mesuré séparément : sa résolution et son coût peuvent le rendre beaucoup trop lent pour un traitement continu.
+
+# **13. Architecture logicielle multi-framework : le principe central**
+
+Cette partie est fondamentale pour l'avenir du projet.
+
+Je ne souhaite pas que notre code métier dépende de YOLO, ONNX Runtime, TensorFlow Lite, ML Kit ou MediaPipe.
+
+Nous allons appliquer une architecture appelée **Hexagonal Architecture (Ports & Adapters)**, combinée à une architecture de plugins.
+
+Le principe est simple :
+
+- Le cœur du logiciel définit ce qu'il attend d'un moteur de vision.
+- Chaque framework fournit sa propre implémentation.
+- Un gestionnaire choisit l'implémentation adaptée.
+- Tous les résultats sont convertis vers les mêmes structures de données.
+- Le tracking, la fusion et les décisions ne savent pas quel framework a effectué l'inférence.
+
+## **13.1 Organisation des couches**
+
+**APPLICATION LAYER**
+
+Interface · Modes de vol · Configuration · Diagnostics
+
+Framework indépendant
+
+**VISION DOMAIN — Le cœur d'ADVDS**
+
+Detection Contracts
+
+Recognition Contracts
+
+Depth Contracts
+
+Pose Contracts
+
+Tracking Contracts
+
+Segmentation Contracts
+
+**Unified Observation Models**
+
+Detection · Pose · Depth · Mask · Motion · Confidence
+
+**VISION RUNTIME MANAGER**
+
+Sélection du moteur · Hardware · Model Registry · Fallback · Benchmark
+
+**ONNX ADAPTERS**
+
+ONNX Runtime · YOLO26 · Custom ONNX Models
+
+**LITERT ADAPTERS**
+
+GPU Delegate · CompiledModel · Custom Models
+
+**ML KIT ADAPTERS**
+
+Face · Object · Barcode · Pose
+
+**MEDIAPIPE ADAPTERS**
+
+Pose · Hands · Face · Segmentation
+
+**OPENCV ADAPTERS**
+
+Optical Flow · Calibration · PnP · ArUco · Geometry
+
+La règle essentielle : aucun fichier de `vision-domain` ne doit importer `org.tensorflow`, `ai.onnxruntime`, `com.google.mlkit` ou les classes de MediaPipe.
+
+C'est ce qui permettra de changer de moteur sans modifier les parties centrales du logiciel.
+
+## **13.2 Organisation des modules Kotlin**
+
+Je recommande cette structure :
+
+```
+advds/
+│
+├── app/
+│
+├── core/
+│   ├── common/
+│   ├── frame/
+│   ├── hardware/
+│   ├── model-registry/
+│   └── diagnostics/
+│
+├── vision-domain/
+│   ├── contracts/
+│   ├── entities/
+│   ├── observations/
+│   ├── capabilities/
+│   └── errors/
+│
+├── vision-runtime/
+│   ├── provider-registry/
+│   ├── provider-resolver/
+│   ├── inference-scheduler/
+│   ├── acceleration-manager/
+│   ├── model-manager/
+│   └── fallback-manager/
+│
+├── vision-adapters/
+│   │
+│   ├── onnx/
+│   │   ├── detection/
+│   │   ├── segmentation/
+│   │   ├── depth/
+│   │   └── postprocessing/
+│   │
+│   ├── litert/
+│   │   ├── detection/
+│   │   ├── segmentation/
+│   │   └── depth/
+│   │
+│   ├── mlkit/
+│   │   ├── face/
+│   │   ├── object/
+│   │   ├── barcode/
+│   │   └── pose/
+│   │
+│   ├── mediapipe/
+│   │   ├── pose/
+│   │   ├── hands/
+│   │   └── segmentation/
+│   │
+│   └── opencv/
+│       ├── opticalflow/
+│       ├── calibration/
+│       ├── markers/
+│       └── geometry/
+│
+├── perception/
+│   ├── detection-engine/
+│   ├── recognition-engine/
+│   ├── tracking-engine/
+│   ├── depth-engine/
+│   ├── motion-engine/
+│   ├── scene-engine/
+│   └── human-engine/
+│
+├── intelligence/
+│   ├── fusion/
+│   ├── spatial-map/
+│   ├── risk-assessment/
+│   └── target-manager/
+│
+├── control/
+│   ├── visual-servoing/
+│   ├── pilot-assistance/
+│   └── safety/
+│
+└── test-lab/
+    ├── video-replay/
+    ├── model-benchmark/
+    ├── golden-datasets/
+    └── provider-contract-tests/
+```
+
+Il est important de ne pas fusionner `vision-domain`, `vision-runtime` et `vision-adapters`.
+
+Ils ont des responsabilités différentes :
+
+- `vision-domain` définit le langage commun ;
+- `vision-runtime` organise et sélectionne les moteurs ;
+- `vision-adapters` réalisent le travail avec les frameworks.
+
+# **14. Le contrat de code : les interfaces universelles**
+
+Nous allons définir des interfaces par type de tâche plutôt qu'une unique interface gigantesque.
+
+Pourquoi ?
+
+Parce qu'un moteur de profondeur ne retourne pas les mêmes informations qu'un détecteur d'objets. De même, ML Kit Face ne doit pas être obligé d'implémenter des méthodes relatives à YOLO.
+
+## **14.1 Les identifiants de moteurs**
+
+```
+enum class VisionFramework {
+    ONNX_RUNTIME,
+    LITERT,
+    ML_KIT,
+    MEDIAPIPE,
+    OPENCV,
+    CUSTOM
+}
+
+enum class ComputeBackend {
+    CPU,
+    GPU,
+    NPU,
+    DSP,
+    UNKNOWN
+}
+
+enum class VisionTask {
+    OBJECT_DETECTION,
+    CLASSIFICATION,
+    INSTANCE_SEGMENTATION,
+    SEMANTIC_SEGMENTATION,
+    DEPTH_ESTIMATION,
+    POSE_ESTIMATION,
+    FACE_DETECTION,
+    HAND_LANDMARKS,
+    BARCODE,
+    OPTICAL_FLOW,
+    CAMERA_GEOMETRY,
+    MARKER_DETECTION
+}
+```
+
+Ces identifiants appartiennent au domaine ADVDS. Ils ne proviennent d'aucun framework externe.
+
+## **14.2 Le contrat d'entrée universel**
+
+Tous les moteurs doivent recevoir une représentation commune de l'image.
+
+```
+data class FrameInput(
+    val sequence: Long,
+    val capturedAtNs: Long?,
+    val receivedAtNs: Long,
+    val width: Int,
+    val height: Int,
+    val rotationDegrees: Int,
+    val cameraProfileId: String,
+    val frame: FrameBuffer
+)
+
+interface FrameBuffer {
+    val format: PixelFormat
+
+    fun width(): Int
+    fun height(): Int
+
+    fun acquire(): FrameLease
+}
+
+interface FrameLease : AutoCloseable {
+    fun asBitmap(): android.graphics.Bitmap
+    fun asByteBuffer(): java.nio.ByteBuffer
+}
+```
+
+Dans l'implémentation réelle, on devra privilégier des buffers réutilisables et des chemins directs vers les formats acceptés par les frameworks. Le contrat ci-dessus illustre la frontière logique : un moteur ne doit pas posséder indéfiniment la mémoire d'une image.
+
+Chaque résultat doit également conserver la séquence de son image source. Une réponse d'inférence ancienne ne doit pas écraser une observation plus récente.
+
+## **14.3 Contrat universel de détection**
+
+```
+data class NormalizedBox(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float
+)
+
+data class Detection(
+    val classId: String,
+    val label: String,
+    val box: NormalizedBox,
+    val rawConfidence: Float,
+    val calibratedConfidence: Float?,
+    val providerId: String
+)
+
+data class DetectionBatch(
+    val frameSequence: Long,
+    val timestampNs: Long,
+    val inferenceDurationMs: Float,
+    val detections: List<Detection>
+)
+
+interface ObjectDetector : AutoCloseable {
+    suspend fun detect(frame: FrameInput): DetectionBatch
+}
+```
+
+Nous avons maintenant un contrat indépendant du détecteur.
+
+Une détection YOLO26, une détection ML Kit ou une détection provenant d'un autre moteur pourra être transformée en `DetectionBatch`.
+
+La source originale est conservée, ce qui permet de diagnostiquer et de comparer les résultats.
+
+## **14.4 Contrats spécialisés**
+
+```
+interface PoseEstimator : AutoCloseable {
+    suspend fun estimate(frame: FrameInput): PoseBatch
+}
+
+interface DepthEstimator : AutoCloseable {
+    suspend fun estimate(frame: FrameInput): DepthResult
+}
+
+interface ImageSegmenter : AutoCloseable {
+    suspend fun segment(frame: FrameInput): SegmentationResult
+}
+
+interface ImageClassifier : AutoCloseable {
+    suspend fun classify(crop: ImageCrop): ClassificationResult
+}
+
+interface BarcodeReader : AutoCloseable {
+    suspend fun scan(frame: FrameInput): BarcodeBatch
+}
+
+interface FeatureTracker : AutoCloseable {
+    suspend fun track(
+        previous: FrameInput,
+        current: FrameInput
+    ): MotionResult
+}
+```
+
+Chaque moteur produit ses propres données métier :
+
+- `PoseBatch` : landmarks, visibilité et posture ;
+- `DepthResult` : carte de profondeur, unités et incertitude ;
+- `SegmentationResult` : masques, classes et résolution ;
+- `ClassificationResult` : classes et scores ;
+- `MotionResult` : vecteurs, points suivis et estimation du mouvement.
+
+C'est particulièrement important pour ne pas perdre des informations lors d'une conversion entre frameworks.
+
+# **15. Provider System — Intégration des différents frameworks**
+
+Nous avons les interfaces métier. Il faut maintenant définir comment les moteurs peuvent les fournir.
+
+Chaque framework sera représenté par un Provider spécialisé.
+
+## **15.1 Objet : ObjectDetectorProvider**
+
+```
+data class ProviderAssessment(
+    val supported: Boolean,
+    val backend: ComputeBackend,
+    val estimatedLatencyMs: Float?,
+    val reason: String?
+)
+
+interface ObjectDetectorProvider {
+
+    val framework: VisionFramework
+
+    fun assess(
+        model: ModelDescriptor,
+        device: DeviceProfile
+    ): ProviderAssessment
+
+    suspend fun create(
+        model: ModelDescriptor,
+        config: InferenceConfig
+    ): ObjectDetector
+}
+```
+
+Nous aurons notamment :
+
+```
+ObjectDetectorProvider
+    |
+    ├── OnnxYoloDetectorProvider
+    |
+    ├── LiteRtDetectorProvider
+    |
+    └── MlKitObjectDetectorProvider
+```
+
+Chaque provider décide s'il peut réellement satisfaire le besoin demandé.
+
+Exemple :
+
+- YOLO26 ONNX : détection de classes personnalisées.
+- LiteRT : détection avec le modèle exporté compatible.
+- ML Kit : détection générique et classification dans les limites de son API.
+
+**Point crucial :** l'interface commune ne transforme pas magiquement les fonctionnalités de ML Kit en fonctionnalités YOLO. ML Kit Object Detection standard ne reproduit pas le catalogue de classes et les masques de YOLO26. Le provider devra annoncer ses limites et refuser une demande incompatible.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://developers.google.com\&sz=32)
+
+Google for Developers+1
+
+
+
+## **15.2 ModelDescriptor — description indépendante du modèle**
+
+Le modèle ne doit pas être défini uniquement par son nom de fichier.
+
+Nous devons conserver ses caractéristiques.
+
+```
+data class ModelDescriptor(
+    val id: String,
+    val version: String,
+    val task: VisionTask,
+    val artifact: ModelArtifact,
+    val input: ModelInputSpec,
+    val output: ModelOutputSpec,
+    val labels: List<ModelLabel>,
+    val preferredFramework: VisionFramework?,
+    val allowedBackends: Set<ComputeBackend>,
+    val checksumSha256: String,
+    val modelLicense: String
+)
+
+data class ModelArtifact(
+    val path: String,
+    val format: String,
+    val sizeBytes: Long
+)
+
+data class ModelInputSpec(
+    val width: Int,
+    val height: Int,
+    val colorOrder: String,
+    val tensorLayout: String,
+    val normalization: String,
+    val resizeMode: String
+)
+
+data class ModelOutputSpec(
+    val decoderId: String,
+    val coordinateSpace: String,
+    val outputNames: List<String>
+)
+
+data class ModelLabel(
+    val id: String,
+    val name: String
+)
+```
+
+Ainsi, nous pourrons gérer des dizaines de modèles sans modifier les moteurs du domaine.
+
+Une manifest complète devra aussi définir les détails propres au modèle : quantification, versions d'opérateurs, seuils par classe, calibration de profondeur et compatibilité des backends.
+
+## **15.3 Exemple de providers réels**
+
+**ONNX YOLO Provider**
+
+Principal
+
+`OnnxYoloDetectorProvider`
+
+Charge le fichier ONNX, prépare le tenseur, lance l'inférence ONNX Runtime, décode les sorties YOLO et produit les détections ADVDS.
+
+**LiteRT Provider**
+
+`LiteRtDetectorProvider`
+
+Charge un modèle LiteRT et exploite les backends réellement compatibles avec le modèle et l'appareil.
+
+**ML Kit Provider**
+
+`MlKitObjectDetectorProvider`
+
+Convertit les `DetectedObject` ML Kit vers les structures ADVDS, sans prétendre supporter des classes personnalisées non disponibles dans son API.
+
+**MediaPipe Provider**
+
+`MediaPipePoseProvider`
+
+Convertit les landmarks MediaPipe en structures `PoseBatch` standardisées.
+
+# **16. Runtime Resolver — Choisir et changer de framework**
+
+Maintenant que les providers existent, il faut un système central capable de les sélectionner.
+
+C'est le `VisionRuntimeManager`.
+
+Sa responsabilité est de répondre à ces questions :
+
+- Quel moteur sait exécuter cette tâche ?
+- Quel format de modèle est accepté ?
+- Quel backend est disponible ?
+- Le modèle est-il compatible avec le matériel ?
+- Quel moteur a obtenu les meilleures performances lors des benchmarks ?
+- Quel fallback est fonctionnellement équivalent ?
+
+## **16.1 Sélecteur de moteur**
+
+Je recommande de ne pas coder une succession de conditions `if framework == ONNX`.
+
+À la place, le sélecteur travaillera à partir d'une demande fonctionnelle.
+
+```
+data class DetectorRequirements(
+    val requiredClasses: Set<String>,
+    val multipleObjects: Boolean,
+    val minimumInputWidth: Int,
+    val maximumLatencyMs: Float?,
+    val offlineRequired: Boolean,
+    val requiredOutputs: Set<String>
+)
+
+data class RuntimeCandidate(
+    val provider: ObjectDetectorProvider,
+    val assessment: ProviderAssessment,
+    val score: Float
+)
+```
+
+Nous pouvons alors effectuer une sélection :
+
+```
+class ObjectDetectorResolver(
+    private val providers: List<ObjectDetectorProvider>
+) {
+
+    suspend fun resolve(
+        model: ModelDescriptor,
+        device: DeviceProfile,
+        requirements: DetectorRequirements,
+        config: InferenceConfig
+    ): ObjectDetector {
+
+        val candidates = providers
+            .map { provider ->
+                provider to provider.assess(model, device)
+            }
+            .filter { (_, assessment) ->
+                assessment.supported
+            }
+            .sortedBy { (_, assessment) ->
+                assessment.estimatedLatencyMs ?: Float.MAX_VALUE
+            }
+
+        for ((provider, _) in candidates) {
+            try {
+                return provider.create(model, config)
+            } catch (error: Exception) {
+                // Log du provider en échec.
+                // Essai du prochain provider compatible.
+            }
+        }
+
+        throw IllegalStateException(
+            "No compatible object detection provider found"
+        )
+    }
+}
+```
+
+Cet exemple représente le mécanisme de sélection initial. En production, le resolver devra également valider les exigences fonctionnelles, les classes disponibles, la licence, le backend demandé, les contraintes de mémoire et les résultats des benchmarks.
+
+Le score de sélection ne devra pas dépendre uniquement du temps d'inférence.
+
+## **16.2 Exemple concret : remplacer ONNX par ML Kit**
+
+Imaginons notre configuration initiale :
+
+```
+Detection task
+    |
+    ├── ONNX Runtime
+    │     YOLO26n.onnx
+    │     Custom 15-class detector
+    │
+    ├── LiteRT
+    │     YOLO26n.tflite
+    │
+    └── ML Kit
+          Standard Object Detector
+```
+
+Dans une configuration compatible, nous pouvons changer le provider préféré sans modifier `DetectionPipeline`.
+
+Exemple de configuration :
+
+```
+data class VisionRuntimeConfig(
+    val preferredObjectFramework: VisionFramework,
+    val preferredPoseFramework: VisionFramework,
+    val preferredDepthFramework: VisionFramework,
+    val allowFallback: Boolean
+)
+```
+
+Configuration initiale :
+
+```
+val config = VisionRuntimeConfig(
+    preferredObjectFramework = VisionFramework.ONNX_RUNTIME,
+    preferredPoseFramework = VisionFramework.MEDIAPIPE,
+    preferredDepthFramework = VisionFramework.ONNX_RUNTIME,
+    allowFallback = true
+)
+```
+
+Nouvelle configuration expérimentale :
+
+```
+val config = VisionRuntimeConfig(
+    preferredObjectFramework = VisionFramework.ML_KIT,
+    preferredPoseFramework = VisionFramework.ML_KIT,
+    preferredDepthFramework = VisionFramework.LITERT,
+    allowFallback = true
+)
+```
+
+Le reste de l'application ne change pas.
+
+Mais il y a une condition capitale : le `ML_KIT` sélectionné doit réellement satisfaire le contrat demandé.
+
+Dans notre exemple, ML Kit ne remplace pas automatiquement YOLO26 si le système exige les quinze classes personnalisées. Le changement sera possible pour une tâche de détection générique, mais pas nécessairement pour notre détecteur spécialisé.
+
+**Un fallback ne doit jamais réduire silencieusement les capacités du système.**
+
+## **16.3 Sélection matérielle et framework : deux décisions distinctes**
+
+Il ne faut pas mélanger :
+
+- le choix du framework ;
+- le choix du backend matériel.
+
+Exemple :
+
+```
+Object Detection
+      |
+      v
+  ONNX Runtime
+      |
+      +---- CPU
+      |
+      +---- NNAPI
+      |
+      +---- QNN (si compatible)
+```
+
+Ou :
+
+```
+Object Detection
+      |
+      v
+     LiteRT
+      |
+      +---- CPU
+      |
+      +---- GPU
+      |
+      +---- NPU (si disponible)
+```
+
+Le `RuntimeManager` choisit d'abord un provider fonctionnellement compatible, puis son meilleur backend disponible.
+
+ONNX Runtime possède plusieurs Execution Providers, notamment CPU, XNNPACK, NNAPI et Qualcomm QNN. Cependant, leur disponibilité dépend de la version, de l'intégration et du matériel.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://onnxruntime.ai\&sz=32)
+
+onnxruntime+1
+
+
+
+Je recommande une politique de benchmark mesuré et sauvegardé par appareil, plutôt que des règles statiques telles que « Snapdragon = GPU ».
+
+# **17. Unified Perception Pipeline — L'assemblage réel**
+
+Nous avons maintenant tous les moteurs. Il faut les assembler.
+
+Le pipeline sera divisé en trois étages.
+
+## **ADVDS Perception Pipeline**
+
+**INPUT**
+
+Drone video · Frame metadata · Camera profile
+
+**PERCEPTION**
+
+Detection
+
+Recognition
+
+Pose
+
+Segmentation
+
+Depth
+
+Optical Flow
+
+**INTERPRETATION**
+
+- Object Tracking
+- Human Tracking
+- Range Estimation
+- Motion Estimation
+- Scene Understanding
+- Re-Identification
+
+**FUSION**
+
+- Temporal Validation
+- Confidence Calibration
+- Uncertainty Estimation
+- Camera Motion Compensation
+- Spatial Consistency
+
+**OUTPUT**
+
+- Local Scene Map
+- Object States
+- Distances and Ranges
+- Motion Vectors
+- Risk Indicators
+- Target State
+
+**PILOT ASSISTANCE & SAFETY SUPERVISOR**
+
+## **17.1 Fusion d'une détection et d'une carte de profondeur**
+
+Imaginons YOLO détectant une personne dans une image.
+
+Le pipeline fera :
+
+1. Récupérer sa bounding box.
+2. Identifier la région de la carte de profondeur correspondante.
+3. Utiliser le masque de segmentation si disponible.
+4. Écarter les pixels de bordure susceptibles d'appartenir à l'arrière-plan.
+5. Calculer une médiane robuste des profondeurs.
+6. Calculer la dispersion des mesures.
+7. Associer le résultat à la piste humaine.
+8. Comparer avec les estimations précédentes.
+9. Publier une `DistanceEstimate`.
+
+Je recommande d'utiliser la médiane plutôt que la moyenne pour limiter l'effet des pixels aberrants.
+
+Exemple de sortie :
+
+```
+TARGET #125
+  Class: PERSON
+  Detection: 0.94
+  Tracking: CONFIRMED
+
+  Relative depth: 0.37
+  Estimated range: 4.2 m
+  Range uncertainty: ±0.8 m
+
+  Motion: APPROACHING
+  TTC: UNKNOWN
+
+  Frame quality: 0.89
+  Observation age: 115 ms
+
+  Overall state: VALID_WITH_UNCERTAINTY
+```
+
+Les valeurs sont illustratives : elles ne constituent pas une promesse de précision du système.
+
+# **18. Fiabilité, contradictions et données incertaines**
+
+Un problème que nous devons absolument éviter est la fausse sensation de précision.
+
+Par exemple :
+
+- YOLO estime un arbre à 5 mètres.
+- Le modèle de profondeur estime sa surface à 2 mètres.
+- L'estimation géométrique n'est pas disponible.
+- Le tracker indique que l'objet se rapproche.
+
+Le système ne doit pas choisir arbitrairement la valeur qui lui plaît.
+
+Je construirais un `EstimationFusionEngine`.
+
+### **18.1 Les quatre niveaux de confiance**
+
+| État        | Signification                                       |
+| ----------- | --------------------------------------------------- |
+| `VERIFIED`  | Plusieurs observations indépendantes et compatibles |
+| `VALID`     | Une estimation suffisamment cohérente               |
+| `UNCERTAIN` | Résultats contradictoires ou insuffisamment fiables |
+| `INVALID`   | Donnée inutilisable                                 |
+
+Attention : plusieurs modèles peuvent partager des données d'entraînement ou des biais similaires. Leurs accords ne constituent donc pas nécessairement des preuves indépendantes.
+
+### **18.2 Filtrage temporel des distances**
+
+Pour chaque piste, nous conserverons :
+
+```
+data class TrackedRange(
+    val trackId: Long,
+    val currentRangeMeters: Float?,
+    val filteredRangeMeters: Float?,
+    val uncertaintyMeters: Float?,
+    val rangeVelocity: Float?,
+    val lastValidMeasurementNs: Long,
+    val method: DistanceMethod,
+    val status: EstimateStatus
+)
+```
+
+Le filtre devra prendre en compte :
+
+- l'écart entre les observations ;
+- l'incertitude du modèle ;
+- l'âge de la mesure ;
+- le mouvement relatif ;
+- les interruptions du tracking.
+
+Un filtre de Kalman ou un filtre alpha-beta peut stabiliser la valeur, à condition de correctement modéliser les incertitudes et les timestamps.
+
+### **18.3 Politique de dégradation**
+
+Lorsqu'un moteur tombe en panne :
+
+```
+DEPTH MODEL FAILED
+        |
+        v
+Try another compatible depth provider
+        |
+        +---- Success
+        |       |
+        |       v
+        |   Continue with new source
+        |
+        +---- Failure
+                |
+                v
+       Use supported geometric
+       estimate if available
+                |
+                +---- Available
+                |       |
+                |       v
+                |   Publish estimate
+                |   with lower confidence
+                |
+                +---- Unavailable
+                        |
+                        v
+                   UNKNOWN
+```
+
+C'est essentiel pour un système qui doit fonctionner avec des images médiocres et des téléphones différents.
+
+# **19. Modèles de données du domaine ADVDS**
+
+Je voudrais aller un peu plus loin que de simples interfaces Kotlin.
+
+Il faut établir un véritable vocabulaire commun pour toute l'application.
+
+Voici les principaux objets métier que je retiendrais.
+
+| Entité                    | Responsabilité                           |
+| ------------------------- | ---------------------------------------- |
+| `DroneFrame`              | Image vidéo et métadonnées               |
+| `CameraProfile`           | Paramètres et calibration caméra         |
+| `VisionObservation`       | Observation brute d'un moteur            |
+| `Detection`               | Objet localisé dans l'image              |
+| `Classification`          | Classes et attributs                     |
+| `PoseObservation`         | Landmarks humains                        |
+| `SegmentationObservation` | Masques et classes                       |
+| `DepthObservation`        | Carte de profondeur                      |
+| `DistanceEstimate`        | Mesure de distance                       |
+| `MotionObservation`       | Mouvement visuel                         |
+| `TrackState`              | Objet suivi dans le temps                |
+| `SceneState`              | Représentation locale de l'environnement |
+| `RiskAssessment`          | Évaluation des risques                   |
+| `PerceptionState`         | Résultat fusionné du système             |
+
+Toutes ces entités seront indépendantes des frameworks.
+
+## **19.1 Un exemple de représentation unifiée**
+
+```
+data class VisionObservation(
+    val id: String,
+    val frameSequence: Long,
+    val timestampNs: Long,
+    val sourceFramework: VisionFramework,
+    val sourceModel: String,
+    val task: VisionTask,
+    val quality: Float,
+    val payload: ObservationPayload
+)
+
+sealed interface ObservationPayload {
+
+    data class DetectionPayload(
+        val detections: List<Detection>
+    ) : ObservationPayload
+
+    data class PosePayload(
+        val poses: List<PoseObservation>
+    ) : ObservationPayload
+
+    data class DepthPayload(
+        val depth: DepthObservation
+    ) : ObservationPayload
+
+    data class MotionPayload(
+        val motion: MotionObservation
+    ) : ObservationPayload
+
+    data class SegmentationPayload(
+        val segmentation: SegmentationObservation
+    ) : ObservationPayload
+}
+```
+
+Cela permet au moteur de fusion de traiter les informations sans connaître le modèle qui les a produites.
+
+Pour les objets les plus volumineux, notamment les cartes de profondeur et masques, les données ne devront pas être copiées inutilement dans des objets Kotlin. Nous utiliserons des références vers des buffers gérés, avec une durée de vie explicite.
+
+## **19.2 Normalisation des coordonnées**
+
+Je veux uniformiser toutes les coordonnées autour du repère image suivant :
+
+```
+Origin: Top-Left
+
+X: 0.0 -> 1.0
+Y: 0.0 -> 1.0
+
+Width: 0.0 -> 1.0
+Height: 0.0 -> 1.0
+```
+
+Mais il faut aussi identifier le référentiel :
+
+- `SOURCE_IMAGE` : vidéo originale ;
+- `MODEL_INPUT` : image redimensionnée pour le modèle ;
+- `CROP` : région découpée ;
+- `DISPLAY` : rendu à l'écran.
+
+Une conversion erronée entre ces référentiels peut produire une détection visuellement décalée et une distance incorrecte.
+
+# **20. Exemple concret : remplacer un provider sans modifier le domaine**
+
+Prenons le cas de notre détecteur YOLO26.
+
+Le provider ONNX se chargera de toute la logique propre à ONNX :
+
+```
+FrameInput
+    |
+    v
+OnnxYoloDetector
+    |
+    +--> Preprocessor
+    |
+    +--> ONNX Runtime Session
+    |
+    +--> YOLO Output Decoder
+    |
+    +--> Coordinate Mapping
+    |
+    v
+DetectionBatch
+```
+
+Son code métier ressemblera à ceci :
+
+```
+class OnnxYoloDetector(
+    private val session: OnnxSession,
+    private val preprocessor: YoloPreprocessor,
+    private val decoder: YoloOutputDecoder
+) : ObjectDetector {
+
+    override suspend fun detect(
+        frame: FrameInput
+    ): DetectionBatch {
+
+        val prepared = preprocessor.prepare(frame)
+
+        val rawOutput = session.run(prepared.tensor)
+
+        val detections = decoder.decode(
+            rawOutput = rawOutput,
+            transform = prepared.transform,
+            labels = prepared.labels
+        )
+
+        return DetectionBatch(
+            frameSequence = frame.sequence,
+            timestampNs = frame.receivedAtNs,
+            inferenceDurationMs = rawOutput.durationMs,
+            detections = detections
+        )
+    }
+
+    override fun close() {
+        session.close()
+    }
+}
+```
+
+Si demain nous utilisons LiteRT :
+
+```
+LiteRtYoloDetector
+    |
+    +--> LiteRT Preprocessor
+    |
+    +--> LiteRT CompiledModel
+    |
+    +--> YOLO Output Decoder
+    |
+    v
+DetectionBatch
+```
+
+Si nous utilisons ML Kit :
+
+```
+MlKitObjectDetector
+    |
+    +--> InputImage Adapter
+    |
+    +--> ML Kit ObjectDetector
+    |
+    +--> DetectedObject Mapper
+    |
+    v
+DetectionBatch
+```
+
+Dans les trois cas, la sortie reste un `DetectionBatch`.
+
+**Le tracking, la fusion et la compréhension de scène n'ont pas à changer.**
+
+Il faut néanmoins prévoir un `OutputDecoder` différent lorsqu'un modèle change de format ou de structure de sortie. Un format ONNX n'implique pas que tous les modèles possèdent les mêmes tenseurs.
+
+## **20.1 Contrat de compatibilité**
+
+Pour éviter qu'un nouveau provider introduise des erreurs invisibles, je rendrais obligatoires les tests suivants pour chaque adaptateur :
+
+- mêmes classes métier attendues ;
+- coordonnées correctement ramenées à l'image source ;
+- horodatage conservé ;
+- comportement correct en cas d'image invalide ;
+- erreurs d'inférence remontées ;
+- ressources libérées ;
+- sorties cohérentes ;
+- résultats conformes à une suite de vidéos de référence.
+
+Ainsi, remplacer ONNX par LiteRT ne sera pas seulement une opération de compilation. Ce sera une implémentation qui devra réussir les mêmes tests contractuels.
+
+# **21. Model Registry — Gestion des modèles et de leurs versions**
+
+Je recommande un registre central de modèles, avec une configuration descriptive.
+
+Exemple :
+
+```
+{
+  "id": "advds.object.general",
+  "version": "1.0.0",
+  "task": "OBJECT_DETECTION",
+  "family": "YOLO26",
+  "model": "YOLO26n",
+  "artifact": "models/yolo26n.onnx",
+  "format": "ONNX",
+  "input": {
+    "width": 416,
+    "height": 416,
+    "layout": "NCHW",
+    "color": "RGB",
+    "normalization": "0_TO_1",
+    "resize": "LETTERBOX"
+  },
+  "output": {
+    "decoder": "YOLO26_DETECTION",
+    "coordinates": "MODEL_INPUT"
+  },
+  "labels": "labels/drone_objects.txt",
+  "recommendedRuntime": [
+    "ONNX_RUNTIME",
+    "LITERT"
+  ],
+  "requiredCapabilities": [
+    "MULTI_CLASS_DETECTION"
+  ]
+}
+```
+
+Le registre doit également contenir :
+
+- empreinte SHA-256 ;
+- version du modèle ;
+- auteur et provenance ;
+- licence ;
+- résolution d'entrée recommandée ;
+- quantification ;
+- exigences mémoire ;
+- compatibilité GPU ;
+- calibration associée ;
+- date de validation.
+
+Les modèles seront versionnés séparément du code Android.
+
+Cela permettra de faire évoluer YOLO, d'introduire un nouveau modèle de segmentation ou de remplacer un modèle de profondeur sans republier nécessairement toute l'application.
+
+Attention, les modèles ML Kit intégrés directement via Google Play Services ne se gèrent pas exactement comme les fichiers ONNX locaux : leur téléchargement et leur cycle de vie sont gérés par les services Google.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://developers.google.com\&sz=32)
+
+Google for Developers
+
+
+
+# **22. Dataset & Validation Lab — Apprendre à reconnaître les conditions réelles du drone**
+
+Je considère cette partie comme indispensable.
+
+Un modèle entraîné sur COCO peut être excellent dans des images classiques et médiocre sur les images d'un drone jouet.
+
+Il faut donc construire une base de vidéos propre à notre environnement.
+
+## **22.1 Captures à constituer**
+
+| Dataset              | Contenu                                             |
+| -------------------- | --------------------------------------------------- |
+| `human_tracking`     | Personnes de face, de dos, de profil, éloignées     |
+| `object_detection`   | Arbres, murs, poteaux, véhicules, animaux           |
+| `small_obstacles`    | Branches, fils, câbles et petits objets             |
+| `scene_segmentation` | Sol, ciel, végétation, constructions                |
+| `depth_calibration`  | Objets et surfaces à distances mesurées             |
+| `motion_sequences`   | Rotations, translations, accélérations apparentes   |
+| `landing_markers`    | QR, ArUco, AprilTag et plateformes                  |
+| `low_quality_video`  | Flou, compression, surexposition, faible lumière    |
+| `occlusion`          | Objets partiellement masqués et disparitions        |
+| `false_detection`    | Ombres, silhouettes ambiguës et textures trompeuses |
+
+Les captures devront provenir des drones eux-mêmes, dans les conditions de leur véritable transmission Wi-Fi.
+
+## **22.2 Outils d'annotation**
+
+Je retiendrais :
+
+- CVAT pour les bounding boxes, les masques et les pistes ;
+- Ultralytics pour l'entraînement et l'export des modèles YOLO ;
+- OpenCV pour les traitements géométriques ;
+- des scripts Python pour les conversions de dataset ;
+- un outil ADVDS interne pour rejouer les vidéos et annoter les erreurs.
+
+Les annotations de profondeur devront être accompagnées de mesures réelles, obtenues avec un télémètre ou des distances mesurées physiquement. Les cartes de profondeur générées par un autre réseau peuvent aider à préparer un dataset, mais ne doivent pas être considérées automatiquement comme des vérités terrain.
+
+## **22.3 Mesures de validation**
+
+Je définirais les indicateurs suivants :
+
+| Domaine     | Métrique                        |
+| ----------- | ------------------------------- |
+| Detection   | Precision, Recall, mAP          |
+| Recognition | Accuracy, F1, Unknown rejection |
+| Tracking    | ID switches, IDF1, HOTA         |
+| Depth       | MAE, RMSE, AbsRel               |
+| Distance    | Erreur absolue en mètres        |
+| Motion      | Erreur de déplacement           |
+| Temporal    | Track continuity                |
+| Runtime     | Latence P50/P95                 |
+| Reliability | Fausses alertes par minute      |
+| Hardware    | RAM, CPU, GPU, température      |
+
+Pour la profondeur, nous mesurerons les erreurs en fonction de plusieurs plages : proximité, distance intermédiaire et grande distance.
+
+La précision moyenne sur toute une scène n'est pas suffisante pour évaluer la qualité d'une distance d'obstacle.
+
+# **23. Priorisation des fonctionnalités pour notre matériel**
+
+Il serait contre-productif de vouloir activer tout ce catalogue dès la première version.
+
+Voici ma priorisation définitive pour ADVDS.
+
+## **Niveau 1 — Core Perception**
+
+Obligatoire pour V1
+
+- Video Quality Analysis
+- YOLO26n Object Detection
+- MediaPipe Pose
+- OpenCV Sparse Optical Flow
+- Object Tracking + Kalman
+- Human Tracking
+- Camera Calibration
+- Temporal Confidence Fusion
+- ML Kit Barcode / Face en fonctions complémentaires
+
+## **Niveau 2 — Spatial Perception**
+
+Extension V2
+
+- YOLO26 Depth
+- Instance Segmentation
+- Semantic Segmentation
+- ArUco / AprilTag PnP
+- Object Distance Estimation
+- Time-to-Contact
+- Camera Motion Compensation
+- Local Spatial Map
+
+## **Niveau 3 — Advanced Perception**
+
+Recherche V3
+
+- Person Re-Identification
+- Advanced Gesture Recognition
+- Monocular Visual Odometry
+- Experimental SLAM
+- Depth-Flow Fusion
+- Trajectory Prediction
+- Experimental Spatial Navigation
+
+## **23.1 Le pipeline réellement activé sur le Galaxy S9**
+
+Pour préserver les performances, voici la configuration que je retiendrais au départ :
+
+| Composant               | Choix                                                             |
+| ----------------------- | ----------------------------------------------------------------- |
+| Détection               | YOLO26n ONNX                                                      |
+| Pose humaine            | MediaPipe Pose Lite                                               |
+| Tracking                | ByteTrack / Kalman                                                |
+| Mouvement               | OpenCV Lucas-Kanade                                               |
+| Profondeur              | YOLO26n-depth, à faible fréquence si les benchmarks le permettent |
+| Distance métrique       | PnP marqueurs + mesures calibrées                                 |
+| Segmentation            | Désactivée par défaut, activée selon le besoin                    |
+| Reconnaissance de codes | ML Kit                                                            |
+| Fusion                  | ADVDS propriétaire                                                |
+| Runtime                 | ONNX Runtime, LiteRT et MediaPipe selon leurs tâches respectives  |
+
+Le S9 ne devra pas subir simultanément des traitements lourds sur la détection, la profondeur et la segmentation. Le scheduler adaptera les fréquences selon les ressources disponibles.
+
+# **24. Structure finale : ce qui doit être indépendant et ce qui doit être commun**
+
+Pour éviter toute ambiguïté lors du développement, voici la séparation que je considère définitive.
+
+| Composant           | Dépendance autorisée              |
+| ------------------- | --------------------------------- |
+| Detection Engine    | Interface `ObjectDetector`        |
+| Recognition Engine  | Interface `ImageClassifier`       |
+| Tracking Engine     | Structures ADVDS uniquement       |
+| Depth Engine        | Interface `DepthEstimator`        |
+| Motion Engine       | Interface `FeatureTracker`        |
+| Human Engine        | Interfaces Pose / Face / Hands    |
+| Segmentation Engine | Interface `ImageSegmenter`        |
+| Fusion Engine       | Observations ADVDS uniquement     |
+| Risk Engine         | États fusionnés uniquement        |
+| Visual Servoing     | États validés + Safety Supervisor |
+| Runtime Manager     | Providers des frameworks          |
+| Model Registry      | Manifests et artefacts            |
+
+Il faut retenir une règle : **les frameworks sont des fournisseurs de capacités, pas des propriétaires de notre logique métier.**
+
+Nous pouvons remplacer un détecteur, changer de format de modèle, passer de ONNX Runtime à LiteRT ou utiliser une API ML Kit, sans réécrire le tracking et la fusion.
+
+C'est ce que nous recherchons avec cette architecture.
+
+# **25. Documentation technique à conserver comme références**
+
+Voici les principales documentations que je retiendrais dans le projet :
+
+[YOLO26: The First YOLO Model Truly Built for Production | by Dr. Fadi Shaar | AI Mindset | Medium](https://images.openai.com/static-rsc-4/4ut0UcnPNQAGigu_4Qa6KQQeHOV8JeUFELZ46zc59aHVjPMwGFrBp7Np0rMpGaW-vcK--g-vLBiBZRjNitHncLdhutbOd9Nct12L607jYxJQXlp-Aj2e9jjy4NFfWqcKqSZB8TMXCg1KujFJ9q8z3p0Eyy30Ltc8ARuHo_guvZk?purpose=inline)
+
+**YOLO26**
+
+Détection, segmentation, pose, profondeur, export ONNX.
+
+[YOLO26 Models](https://docs.ultralytics.com/models/yolo26/?utm_source=chatgpt.com)[YOLO26 Depth](https://docs.ultralytics.com/tasks/depth/?utm_source=chatgpt.com)[ONNX Export](https://docs.ultralytics.com/integrations/onnx/?utm_source=chatgpt.com)
+
+[Cross-Platform Edge AI Made Easy with ONNX Runtime | Microsoft Community Hub](https://images.openai.com/static-rsc-4/c54ibKSjHWymeNLkr3Tvbn4EJ1FrRUHZE_BivwLx1Dup_PJLaNB_1chL-kDV42yqG78LPXB68Bkw6EGbe5-x7wNQhTRl8RHtes9dLAMA1ZFtKbdplDPCmeCU4PrYqrd8xMpqYn895dDlLM_Cx7VFD3fQlMy2mPHUbg0lHGgt1KI?purpose=inline)
+
+**ONNX Runtime**
+
+Moteurs d'exécution et accélération mobile.
+
+[ONNX Runtime Documentation](https://onnxruntime.ai/docs/?utm_source=chatgpt.com)[Execution Providers](https://onnxruntime.ai/docs/execution-providers/?utm_source=chatgpt.com)
+
+[Google ML Kit Logo PNG Vector (AI) Free Download](https://images.openai.com/static-rsc-4/biNFVYv0i0c7dlM3SHHkuaWUmcANDX_Y-nU4x5MG0Htl04trsEQD7vrW6mIQ8n_iyrCq51XrsL8AHr4oKqJMfSWgKFm3-VR4UbO3V7mm9LGOjgS3Om4-IqxmsQ1ULmYYIfOrHnU1W1qZJwtBtyxnjzTWB7igI73J8H0BnZCZOcE?purpose=inline)
+
+**Google ML Kit**
+
+[ML Kit Documentation](https://developers.google.com/ml-kit?utm_source=chatgpt.com)
+
+[Mediapipe (1) - Mediapipe 이해 및 Object detection 예제 — da2so](https://images.openai.com/static-rsc-4/hc29h5qvoUhT6zXBMkmVPzIptVuGTxLWhQXF6U9PmaWHvnkIJIwMaV-SljWPDoegqJTLS3ntqyfdUv10lCn_rcAjvPeOsoezVY8kx4CGwE4HTbROVcv-uZWE6NSLefHJ0KpNwcIiut0h3wPDrRfGhrGQzD_yQDjQ9v8Ri9TN2DQ?purpose=inline)
+
+**MediaPipe**
+
+[MediaPipe Solutions](https://developers.google.com/edge/mediapipe/solutions/guide?utm_source=chatgpt.com)[Pose Landmarker](https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker?utm_source=chatgpt.com)
+
+[Quizlet Logo PNG,  Vector (AI, EPS, CDR, PDF, SVG) - iconLogoVector](https://images.openai.com/static-rsc-4/oNJPdFdjk1NJ_nv6S_Ee9z2h17N90DkCqZIJh9jVSkuj81vPEYtMtRHToBxJqc5OmBMHE8AzetUp8vGhDTDvzrzUYln_IHHwMFVuvoN8x8k9c4m95wg1RIMtTHuAe_zG6xdaAoGbtHhsuDrzozdpGh3HN6HCuUV7Gw6TjBVaiIM?purpose=inline)
+
+**OpenCV**
+
+[OpenCV Documentation](https://docs.opencv.org/4.x/?utm_source=chatgpt.com)[Calibration & 3D Reconstruction](https://docs.opencv.org/4.x/d9/d0c/group__calib3d.html?utm_source=chatgpt.com)[Optical Flow & Tracking](https://docs.opencv.org/4.x/dc/d6b/group__video__track.html?utm_source=chatgpt.com)
+
+# **26. La décision architecturale que je retiens**
+
+Je formaliserais ADVDS autour de quatre piliers :
+
+## **1. Universal Vision Core**
+
+Fondation
+
+Des interfaces et des modèles de données indépendants des frameworks.
+
+## **2. Multi-Framework Runtime**
+
+Fondation
+
+ONNX Runtime, LiteRT, ML Kit, MediaPipe et OpenCV, interchangeables lorsque leurs capacités sont équivalentes.
+
+## **3. Perception & Spatial Intelligence**
+
+Cœur fonctionnel
+
+Détection, reconnaissance, tracking, profondeur, distances, mouvement et compréhension de scène.
+
+## **4. Fusion & Decision Intelligence**
+
+Cœur de fiabilité
+
+Validation temporelle, incertitudes, estimation de risques et assistance au pilote.
+
+**Ma recommandation de développement :** ne commençons pas par coder tous les moteurs. Construisons d'abord `vision-domain`, les contrats Kotlin, le `Model Registry` et le `VisionRuntimeManager`. Ensuite, intégrons YOLO26n ONNX comme premier provider de détection, MediaPipe comme provider de pose et OpenCV comme provider géométrique.
+
+Une fois ces trois fournisseurs capables de communiquer par les mêmes contrats, nous aurons une fondation suffisamment solide pour intégrer les autres fonctionnalités sans rendre l'application dépendante d'une technologie unique.
+
+Cette conception permettra également d'ajouter ultérieurement d'autres familles de modèles, notamment des modèles de profondeur ou de détection spécialisés, sans remettre en cause le fonctionnement général d'ADVDS.
